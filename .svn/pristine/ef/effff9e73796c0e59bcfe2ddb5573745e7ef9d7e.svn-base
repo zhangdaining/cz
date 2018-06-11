@@ -1,0 +1,44 @@
+package net.shopxx.dao.impl;
+
+import java.util.List;
+
+import javax.persistence.FlushModeType;
+import javax.persistence.Query;
+import javax.persistence.TypedQuery;
+
+import org.springframework.stereotype.Repository;
+
+import net.shopxx.dao.WeChatDao;
+import net.shopxx.entity.WeChat;
+
+/**
+ * 微信Dao实现
+ * cjh
+ * 2015年5月21日 下午3:01:28 
+ */
+@Repository("weChatDaoImpl")
+public class WeChatDaoImpl extends BaseDaoImpl<WeChat, Long> implements WeChatDao {
+
+	public WeChat findWeChatByOpenId(String openId,Boolean subscribe) {
+		TypedQuery<WeChat> query;
+		String jpql = "select weChat from WeChat weChat where weChat.openId = :openId and subscribe = :subscribe";
+		query = entityManager.createQuery(jpql, WeChat.class).setFlushMode(FlushModeType.COMMIT).setParameter("openId", openId).setParameter("subscribe", subscribe);
+		List<WeChat> list = query.getResultList();
+		return list.size() > 0 ? list.get(0) : null;
+	}
+	public WeChat findWeChatByUnionid(String unionid) {		
+		String jpql = "select * from jo_third_union where open_id = ?";
+		Query query = entityManager.createNativeQuery(jpql);
+		query.setParameter(1, unionid);
+		List<WeChat> list = query.getResultList();		
+		return list.size() > 0 ? list.get(0) : null;
+	}
+	public String findopenid(Integer userId) {		
+		String jpql = "select open_id from jo_third_union where user_id = ?";
+		Query query = entityManager.createNativeQuery(jpql);
+		query.setParameter(1, userId);
+		List<WeChat> list = query.getResultList();		
+		
+		return (String) query.getSingleResult();
+	}
+}

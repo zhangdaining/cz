@@ -1,0 +1,702 @@
+/*
+ * Copyright 2005-2015 shopxx.net. All rights reserved.
+ * Support: http://www.shopxx.net
+ * License: http://www.shopxx.net/license
+ */
+package net.shopxx.controller.admin;
+
+import java.io.PrintWriter;
+import java.math.BigDecimal;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.*;
+
+import javax.annotation.Resource;
+import javax.servlet.http.HttpServletResponse;
+
+import net.sf.json.JSONObject;
+import net.shopxx.Message;
+import net.shopxx.Page;
+import net.shopxx.Pageable;
+import net.shopxx.Setting;
+import net.shopxx.dao.MemberDao;
+import net.shopxx.dao.WeChatDao;
+import net.shopxx.entity.*;
+import net.shopxx.service.AdminService;
+import net.shopxx.service.AreaService;
+import net.shopxx.service.DeliveryCorpService;
+import net.shopxx.service.MemberService;
+import net.shopxx.service.OrderService;
+import net.shopxx.service.PaymentMethodService;
+import net.shopxx.service.ShippingMethodService;
+import net.shopxx.service.ShippingService;
+import net.shopxx.util.HttpRequest;
+import net.shopxx.util.JsonUtils;
+import net.shopxx.util.SendUtils;
+import net.shopxx.util.SystemUtils;
+
+import org.apache.commons.lang.StringUtils;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.ModelMap;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
+
+@Controller("adminOrderController")
+@RequestMapping("/admin/order")
+public class OrderController extends BaseController {
+
+	@Resource(name = "adminServiceImpl")
+	private AdminService adminService;
+	@Resource(name = "areaServiceImpl")
+	private AreaService areaService;
+	@Resource(name = "orderServiceImpl")
+	private OrderService orderService;
+	@Resource(name = "shippingMethodServiceImpl")
+	private ShippingMethodService shippingMethodService;
+	@Resource(name = "paymentMethodServiceImpl")
+	private PaymentMethodService paymentMethodService;
+	@Resource(name = "deliveryCorpServiceImpl")
+	private DeliveryCorpService deliveryCorpService;
+	@Resource(name = "shippingServiceImpl")
+	private ShippingService shippingService;
+	@Resource(name = "memberServiceImpl")
+	private MemberService memberService;
+	
+	@Resource(name = "memberDaoImpl")
+	private MemberDao memberDao;
+	@Resource(name = "weChatDaoImpl")
+	private WeChatDao weChatDao;
+	@RequestMapping(value = "/check_lock", method = RequestMethod.POST)
+	public @ResponseBody
+	Message checkLock(Long id) {
+		Order order = orderService.find(id);
+		if (order == null) {
+			return ERROR_MESSAGE;
+		}
+		Admin admin = adminService.getCurrent();
+		if (orderService.isLocked(order, admin, true)) {
+			return Message.warn("admin.order.locked");
+		}
+		return SUCCESS_MESSAGE;
+	}
+
+	@RequestMapping(value = "/calculate", method = RequestMethod.POST)
+	public @ResponseBody
+	Map<String, Object> calculate(Long id, BigDecimal freight, BigDecimal tax, BigDecimal offsetAmount) {
+		Map<String, Object> data = new HashMap<String, Object>();
+		Order order = orderService.find(id);
+		if (order == null) {
+			data.put("message", ERROR_MESSAGE);
+			return data;
+		}
+		data.put("message", SUCCESS_MESSAGE);
+		data.put("amount", orderService.calculateAmount(order.getAmount(), order.getFee(), freight, tax, order.getPromotionDiscount(), order.getCouponDiscount(), offsetAmount));
+		return data;
+	}
+
+	@RequestMapping(value = "/transit_step", method = RequestMethod.GET)
+	public @ResponseBody
+	Map<String, Object> transitStep(Long shippingId) {
+		Map<String, Object> data = new HashMap<String, Object>();
+		Shipping shipping = shippingService.find(shippingId);
+		if (shipping == null) {
+			data.put("message", ERROR_MESSAGE);
+			return data;
+		}
+		String wuliu = shipping.getDeliveryCorpCode();
+        String ordersn = shipping.getTrackingNo();
+        String customer ="0D1F9DCB94E289DD205F8D2376A28CB9";
+        String key = "sLApPENR4935";
+        String param ="{\"com\":\""+wuliu+"\",\"num\":\""+ordersn+"\"}";
+        String sign = md5Encode(param+key+customer);
+        HashMap<String, String> params = new HashMap<String, String>();
+        params.put("param",param);
+        params.put("sign",sign);
+        params.put("customer",customer);
+        String resp;
+        try {
+			resp = new HttpRequest().postData("http://poll.kuaidi100.com/poll/query.do", params, "utf-8").toString();
+			Result jsonElement = JsonUtils.toObject(resp,Result.class);
+	        if("查询失败".equals(jsonElement.getMessage())){
+	        	data.put("message", "物流查询失败，请稍后查询。");
+	            return data;
+	        }else{
+	        	data.put("sn",jsonElement.getNu());
+	    		data.put("state",state(Integer.valueOf(jsonElement.getState())));
+	    		data.put("data",jsonElement.getData());
+	    		data.put("nu",jsonElement.getNu());
+	        }
+	        data.put("message", SUCCESS_MESSAGE);
+			data.put("transitSteps", jsonElement.getData());
+			return data;
+        } catch (Exception e) {
+        	data.put("message", "物流查询失败，请稍后查询。");
+            return data;
+        }
+	}
+
+	@RequestMapping(value = "/edit", method = RequestMethod.GET)
+	public String edit(Long id, ModelMap model) {
+		Order order = orderService.find(id);
+		if (order == null || order.hasExpired() || (!Order.Status.pendingPayment.equals(order.getStatus()) && !Order.Status.pendingReview.equals(order.getStatus()))) {
+			return ERROR_VIEW;
+		}
+		model.addAttribute("paymentMethods", paymentMethodService.findAll());
+		model.addAttribute("shippingMethods", shippingMethodService.findAll());
+		model.addAttribute("order", order);
+		return "/admin/order/edit";
+	}
+	/**
+	 * 异步改变显示状态
+	 * @param id
+	 * @param state
+	 * @param response
+	 * @param redirectAttributes
+	 */
+	@RequestMapping(value = "/changeState", method = RequestMethod.GET)
+	public void changeState(Long id,String state,HttpServletResponse response,RedirectAttributes redirectAttributes){
+		Boolean isShow = null;
+		if(state.equals("false"))
+			isShow = true;
+		else
+			isShow = false;
+		PrintWriter out = null;
+		if(id != null && state != null){
+			Order order = orderService.find(id);
+			order.setIsMarketable(isShow);
+			try {
+				orderService.update(order);
+				out = response.getWriter();
+				out.print(isShow);
+			} catch (Exception e) {
+				
+			} finally {
+				out.close();
+			}
+		}
+	}
+	@RequestMapping(value = "/update", method = RequestMethod.POST)
+	public String update(Long id, Long areaId, Long paymentMethodId, Long shippingMethodId, BigDecimal freight, BigDecimal tax, BigDecimal offsetAmount, Long rewardPoint, String consignee, String address, String zipCode, String phone, String invoiceTitle, String memo,
+			RedirectAttributes redirectAttributes) {
+		Area area = areaService.find(areaId);
+		PaymentMethod paymentMethod = paymentMethodService.find(paymentMethodId);
+		ShippingMethod shippingMethod = shippingMethodService.find(shippingMethodId);
+
+		Order order = orderService.find(id);
+		if (order == null || order.hasExpired() || (!Order.Status.pendingPayment.equals(order.getStatus()) && !Order.Status.pendingReview.equals(order.getStatus()))) {
+			return ERROR_VIEW;
+		}
+		Invoice invoice = StringUtils.isNotEmpty(invoiceTitle) ? new Invoice(invoiceTitle, null) : null;
+		order.setTax(invoice != null ? tax : BigDecimal.ZERO);
+		order.setOffsetAmount(offsetAmount);
+		order.setRewardPoint(rewardPoint);
+		order.setMemo(memo);
+		order.setInvoice(invoice);
+		order.setPaymentMethod(paymentMethod);
+		if (order.getIsDelivery()) {
+			order.setFreight(freight);
+			order.setConsignee(consignee);
+			order.setAddress(address);
+			order.setZipCode(zipCode);
+			order.setPhone(phone);
+			order.setArea(area);
+			order.setShippingMethod(shippingMethod);
+			if (!isValid(order, Order.Delivery.class)) {
+				return ERROR_VIEW;
+			}
+		} else {
+			order.setFreight(BigDecimal.ZERO);
+			order.setConsignee(null);
+			order.setAreaName(null);
+			order.setAddress(null);
+			order.setZipCode(null);
+			order.setPhone(null);
+			order.setShippingMethodName(null);
+			order.setArea(null);
+			order.setShippingMethod(null);
+			if (!isValid(order)) {
+				return ERROR_VIEW;
+			}
+		}
+
+		Admin admin = adminService.getCurrent();
+		if (orderService.isLocked(order, admin, true)) {
+			return ERROR_VIEW;
+		}
+		orderService.update(order, admin);
+
+		addFlashMessage(redirectAttributes, SUCCESS_MESSAGE);
+		return "redirect:list.jhtml";
+	}
+
+	@RequestMapping(value = "/view", method = RequestMethod.GET)
+	public String view(Long id, ModelMap model) {
+		
+	
+		
+		Setting setting = SystemUtils.getSetting();
+		model.addAttribute("methods", Payment.Method.values());
+		model.addAttribute("refundsMethods", Refunds.Method.values());
+		model.addAttribute("paymentMethods", paymentMethodService.findAll());
+		model.addAttribute("shippingMethods", shippingMethodService.findAll());
+		model.addAttribute("deliveryCorps", deliveryCorpService.findAll());
+		model.addAttribute("isKuaidi100Enabled", StringUtils.isNotEmpty(setting.getKuaidi100Key()));
+		Admin admin = adminService.getCurrent();
+		Set<Role> roles= admin.getRoles();
+		Boolean isyuying=false;
+		Boolean iscaiwu=false;
+		for(Role role:roles){
+			if(role.getName().indexOf("运营")!=-1){
+				isyuying=true;
+			}
+			if(role.getName().indexOf("财务")!=-1){
+				iscaiwu=true;
+			}
+			if(role.getName().indexOf("管理员")!=-1){
+				iscaiwu=true;
+				isyuying=true;
+			}
+		}
+		
+		String name=memberService.findshopname(memberService.findUserId(orderService.find(id).getMember().getUsername()));
+		model.addAttribute("iscaiwu", iscaiwu);
+		model.addAttribute("name", name);
+		model.addAttribute("isyuying", isyuying);
+		model.addAttribute("order", orderService.find(id));
+		return "/admin/order/view";
+	}
+
+	@RequestMapping(value = "/xinview", method = RequestMethod.GET)
+	public String xinview(Long id, ModelMap model) {
+		
+	
+		
+		Setting setting = SystemUtils.getSetting();
+		model.addAttribute("methods", Payment.Method.values());
+		model.addAttribute("refundsMethods", Refunds.Method.values());
+		model.addAttribute("paymentMethods", paymentMethodService.findAll());
+		model.addAttribute("shippingMethods", shippingMethodService.findAll());
+		model.addAttribute("deliveryCorps", deliveryCorpService.findAll());
+		model.addAttribute("isKuaidi100Enabled", StringUtils.isNotEmpty(setting.getKuaidi100Key()));
+		Admin admin = adminService.getCurrent();
+		Set<Role> roles= admin.getRoles();
+		Boolean isyuying=false;
+		Boolean iscaiwu=false;
+		for(Role role:roles){
+			if(role.getName().indexOf("运营")!=-1){
+				isyuying=true;
+			}
+			if(role.getName().indexOf("财务")!=-1){
+				iscaiwu=true;
+			}
+			if(role.getName().indexOf("管理员")!=-1){
+				iscaiwu=true;
+				isyuying=true;
+			}
+		}
+		model.addAttribute("iscaiwu", iscaiwu);
+		model.addAttribute("isyuying", isyuying);
+		model.addAttribute("order", orderService.find(id));
+		return "/admin/order/xinview";
+	}
+
+	@RequestMapping(value = "/review", method = RequestMethod.POST)
+	public String review(Long id, Boolean passed,String salesMan, RedirectAttributes redirectAttributes) {
+		Order order = orderService.find(id);
+		if (order == null || order.hasExpired() || !Order.Status.pendingReview.equals(order.getStatus())) {
+			return ERROR_VIEW;
+		}
+		Admin admin = adminService.getCurrent();
+		if (orderService.isLocked(order, admin, true)) {
+			return ERROR_VIEW;
+		}
+		order.setSalesMan(salesMan);
+		orderService.update(order);
+		orderService.review(order, passed, admin);
+		addFlashMessage(redirectAttributes, SUCCESS_MESSAGE);
+		return "redirect:view.jhtml?id=" + id;
+	}
+	
+	@RequestMapping(value = "/salesMan", method = RequestMethod.POST)
+	public String salesMan(Long id,String salesMan, RedirectAttributes redirectAttributes) {
+		Order order = orderService.find(id);
+		if (order == null) {
+			return ERROR_VIEW;
+		}
+		
+		order.setSalesMan(salesMan);
+		orderService.update(order);
+		addFlashMessage(redirectAttributes, SUCCESS_MESSAGE);
+		return "redirect:view.jhtml?id=" + id;
+	}
+
+	@RequestMapping(value = "/payment", method = RequestMethod.POST)
+	public String payment(Payment payment, Long orderId, Long paymentMethodId, RedirectAttributes redirectAttributes) {
+		Order order = orderService.find(orderId);
+		if (order == null) {
+			return ERROR_VIEW;
+		}
+		payment.setOrder(order);
+		payment.setPaymentMethod(paymentMethodService.find(paymentMethodId));
+		if (!isValid(payment)) {
+			return ERROR_VIEW;
+		}
+		Admin admin = adminService.getCurrent();
+		if (orderService.isLocked(order, admin, true)) {
+			return ERROR_VIEW;
+		}
+		Member member = order.getMember();
+		if (Payment.Method.deposit.equals(payment.getMethod()) && payment.getAmount().compareTo(member.getBalance()) > 0) {
+			return ERROR_VIEW;
+		}
+		payment.setFee(BigDecimal.ZERO);
+		payment.setOperator(admin);
+		orderService.payment(order, payment, admin);
+		addFlashMessage(redirectAttributes, SUCCESS_MESSAGE);
+		return "redirect:view.jhtml?id=" + orderId;
+	}
+
+	@RequestMapping(value = "/refunds", method = RequestMethod.POST)
+	public String refunds(Refunds refunds, Long orderId, Long paymentMethodId, RedirectAttributes redirectAttributes) {
+		Order order = orderService.find(orderId);
+		if (order == null || order.getRefundableAmount().compareTo(BigDecimal.ZERO) <= 0) {
+			return ERROR_VIEW;
+		}
+		refunds.setOrder(order);
+		refunds.setPaymentMethod(paymentMethodService.find(paymentMethodId));
+		if (!isValid(refunds)) {
+			return ERROR_VIEW;
+		}
+		Admin admin = adminService.getCurrent();
+		if (orderService.isLocked(order, admin, true)) {
+			return ERROR_VIEW;
+		}
+		refunds.setOperator(admin);
+		orderService.refunds(order, refunds, admin);
+		addFlashMessage(redirectAttributes, SUCCESS_MESSAGE);
+		return "redirect:view.jhtml?id=" + orderId;
+	}
+
+	@RequestMapping(value = "/shipping", method = RequestMethod.POST)
+	public String shipping(Shipping shipping, Long orderId, Long shippingMethodId, Long deliveryCorpId, Long areaId, RedirectAttributes redirectAttributes) {
+		Order order = orderService.find(orderId);
+		if (order == null || order.getShippableQuantity() <= 0) {
+			return ERROR_VIEW;
+		}
+		boolean isDelivery = false;
+		for (Iterator<ShippingItem> iterator = shipping.getShippingItems().iterator(); iterator.hasNext();) {
+			ShippingItem shippingItem = iterator.next();
+			if (shippingItem == null || StringUtils.isEmpty(shippingItem.getSn()) || shippingItem.getQuantity() == null || shippingItem.getQuantity() <= 0) {
+				iterator.remove();
+				continue;
+			}
+			OrderItem orderItem = order.getOrderItem(shippingItem.getSn());
+			if (orderItem == null || shippingItem.getQuantity() > orderItem.getShippableQuantity()) {
+				return ERROR_VIEW;
+			}
+			Product product = orderItem.getProduct();
+			if (product != null && shippingItem.getQuantity() > product.getStock()) {
+				return ERROR_VIEW;
+			}
+			shippingItem.setName(orderItem.getName());
+			shippingItem.setIsDelivery(orderItem.getIsDelivery());
+			shippingItem.setProduct(product);
+			shippingItem.setShipping(shipping);
+			shippingItem.setSpecifications(orderItem.getSpecifications());
+			if (orderItem.getIsDelivery()) {
+				isDelivery = true;
+			}
+		}
+		shipping.setOrder(order);
+		shipping.setShippingMethod(shippingMethodService.find(shippingMethodId));
+		shipping.setDeliveryCorp(deliveryCorpService.find(deliveryCorpId));
+		shipping.setArea(areaService.find(areaId));
+		if (isDelivery) {
+			if (!isValid(shipping, Shipping.Delivery.class)) {
+				return ERROR_VIEW;
+			}
+		} else {
+			shipping.setShippingMethod((String) null);
+			shipping.setDeliveryCorp((String) null);
+			shipping.setDeliveryCorpUrl(null);
+			shipping.setDeliveryCorpCode(null);
+			shipping.setTrackingNo(null);
+			shipping.setFreight(null);
+			shipping.setConsignee(null);
+			shipping.setArea((String) null);
+			shipping.setAddress(null);
+			shipping.setZipCode(null);
+			shipping.setPhone(null);
+			if (!isValid(shipping)) {
+				return ERROR_VIEW;
+			}
+		}
+
+		Admin admin = adminService.getCurrent();
+		if (orderService.isLocked(order, admin, true)) {
+			return ERROR_VIEW;
+		}
+		shipping.setOperator(admin);
+		orderService.shipping(order, shipping, admin);
+		
+		
+		SendUtils.sendmoban(order,shippingService.findByorderId(order),weChatDao.findopenid(memberDao.findUserId(order.getMember().getUsername())));
+		//order.setSalesMan(shipping.getMemo());
+		//orderService.update(order);
+		addFlashMessage(redirectAttributes, SUCCESS_MESSAGE);
+		return "redirect:view.jhtml?id=" + orderId;
+	}
+
+	@RequestMapping(value = "/returns", method = RequestMethod.POST)
+	public String returns(Returns returns, Long orderId, Long shippingMethodId, Long deliveryCorpId, Long areaId, RedirectAttributes redirectAttributes) {
+		Order order = orderService.find(orderId);
+		if (order == null || order.getReturnableQuantity() <= 0) {
+			return ERROR_VIEW;
+		}
+		for (Iterator<ReturnsItem> iterator = returns.getReturnsItems().iterator(); iterator.hasNext();) {
+			ReturnsItem returnsItem = iterator.next();
+			if (returnsItem == null || StringUtils.isEmpty(returnsItem.getSn()) || returnsItem.getQuantity() == null || returnsItem.getQuantity() <= 0) {
+				iterator.remove();
+				continue;
+			}
+			OrderItem orderItem = order.getOrderItem(returnsItem.getSn());
+			if (orderItem == null || returnsItem.getQuantity() > orderItem.getReturnableQuantity()) {
+				return ERROR_VIEW;
+			}
+			returnsItem.setName(orderItem.getName());
+			returnsItem.setReturns(returns);
+			returnsItem.setSpecifications(orderItem.getSpecifications());
+		}
+		returns.setOrder(order);
+		returns.setShippingMethod(shippingMethodService.find(shippingMethodId));
+		returns.setDeliveryCorp(deliveryCorpService.find(deliveryCorpId));
+		returns.setArea(areaService.find(areaId));
+		if (!isValid(returns)) {
+			return ERROR_VIEW;
+		}
+		Admin admin = adminService.getCurrent();
+		if (orderService.isLocked(order, admin, true)) {
+			return ERROR_VIEW;
+		}
+		returns.setOperator(admin);
+		orderService.returns(order, returns, admin);
+		addFlashMessage(redirectAttributes, SUCCESS_MESSAGE);
+		return "redirect:view.jhtml?id=" + orderId;
+	}
+
+	@RequestMapping(value = "/receive", method = RequestMethod.POST)
+	public String receive(Long id, RedirectAttributes redirectAttributes) {
+		Order order = orderService.find(id);
+		if (order == null || order.hasExpired() || !Order.Status.shipped.equals(order.getStatus())) {
+			return ERROR_VIEW;
+		}
+		Admin admin = adminService.getCurrent();
+		Member member = order.getMember();
+		if (order.getRewardPoint() > 0) {
+			memberService.addPoint(member, order.getRewardPoint(), PointLog.Type.reward, admin, null);
+		}
+		if (orderService.isLocked(order, admin, true)) {
+			return ERROR_VIEW;
+		}
+		orderService.receive(order, admin);
+		addFlashMessage(redirectAttributes, SUCCESS_MESSAGE);
+		return "redirect:view.jhtml?id=" + id;
+	}
+
+	@RequestMapping(value = "/complete", method = RequestMethod.POST)
+	public String complete(Long id, RedirectAttributes redirectAttributes) {
+		Order order = orderService.find(id);
+		if (order == null || order.hasExpired() || !Order.Status.received.equals(order.getStatus())) {
+			return ERROR_VIEW;
+		}
+		Admin admin = adminService.getCurrent();
+		if (orderService.isLocked(order, admin, true)) {
+			return ERROR_VIEW;
+		}
+		orderService.complete(order, admin);
+		addFlashMessage(redirectAttributes, SUCCESS_MESSAGE);
+		return "redirect:view.jhtml?id=" + id;
+	}
+	@RequestMapping(value = "/rewardcash", method = RequestMethod.POST)
+	public String rewardcash(Long id, RedirectAttributes redirectAttributes) {
+		Order order = orderService.find(id);
+		if (order == null ) {
+			return ERROR_VIEW;
+		}
+		Admin admin = adminService.getCurrent();
+		if (orderService.isLocked(order, admin, true)) {
+			return ERROR_VIEW;
+		}
+		orderService.rewardcash(order, admin);
+		addFlashMessage(redirectAttributes, SUCCESS_MESSAGE);
+		return "redirect:view.jhtml?id=" + id;
+	}
+	@RequestMapping(value = "/fail", method = RequestMethod.POST)
+	public String fail(Long id, String refundMemo ,RedirectAttributes redirectAttributes) {
+		Order order = orderService.find(id);
+		if (order == null || order.hasExpired() || (!Order.Status.pendingShipment.equals(order.getStatus()) && !Order.Status.shipped.equals(order.getStatus()) && !Order.Status.received.equals(order.getStatus()))) {
+			return ERROR_VIEW;
+		}
+		Admin admin = adminService.getCurrent();
+		if (orderService.isLocked(order, admin, true)) {
+			return ERROR_VIEW;
+		}
+		order.setRefundMemo(refundMemo);
+		orderService.update(order);
+		orderService.fail(order, admin);
+		addFlashMessage(redirectAttributes, SUCCESS_MESSAGE);
+		return "redirect:view.jhtml?id=" + id;
+	}
+	@RequestMapping(value = "/refundStatus", method = RequestMethod.POST)
+	public String refundStatus(Long id, RedirectAttributes redirectAttributes,String refundStatus,String reviewMemo,boolean ischeck) {
+		Order order = orderService.find(id);
+		if (order == null || order.hasExpired() || order.getRefundStatus()==null) {
+			return ERROR_VIEW;
+		}
+		Admin admin = adminService.getCurrent();
+		if (orderService.isLocked(order, admin, true)) {
+			return ERROR_VIEW;
+		}
+		if(ischeck){
+			orderService.refundStatus(order, admin, Order.RefundStatus.valueOf("pendingRefund"),reviewMemo);
+		}else{
+			orderService.refundStatus(order, admin, Order.RefundStatus.valueOf("refuseRefund"),reviewMemo);
+
+		}
+		
+		addFlashMessage(redirectAttributes, SUCCESS_MESSAGE);
+		return "redirect:view.jhtml?id=" + id;
+	}
+
+	@RequestMapping(value = "/list", method = RequestMethod.GET)
+	public String list(Order.Type type, Date beginDate,Date endDate, Order.Status status, String memberUsername, Boolean isPendingReceive, Boolean hasPay ,Boolean isshou,Boolean isfa, Boolean hasRefunds, Boolean isPendingRefunds, Boolean isAllocatedStock, Boolean hasExpired, Pageable pageable, ModelMap model,
+					   String orderStatusChk,Boolean isAppyRefunds) {
+		model.addAttribute("types", Order.Type.values());
+		model.addAttribute("statuses", Order.Status.values());
+		model.addAttribute("type", type);
+		model.addAttribute("status", status);
+		model.addAttribute("memberUsername", memberUsername);
+		model.addAttribute("isPendingReceive", isPendingReceive);
+		model.addAttribute("isPendingRefunds", isPendingRefunds);
+		model.addAttribute("isAllocatedStock", isAllocatedStock);
+		model.addAttribute("hasRefunds", hasRefunds);
+		model.addAttribute("hasPay", hasPay);
+		model.addAttribute("isshou", isshou);
+		model.addAttribute("isfa", isfa);
+		
+		model.addAttribute("hasExpired", hasExpired);
+		model.addAttribute("isAppyRefunds", isAppyRefunds);
+		model.addAttribute("beginDate", beginDate);
+		model.addAttribute("endDate", endDate);
+
+		model.addAttribute("orderStatusChk",orderStatusChk);
+
+		Member member = memberService.findByUsername(memberUsername);
+		if (StringUtils.isNotEmpty(memberUsername) && member == null) {
+			model.addAttribute("page", Page.emptyPage(pageable));
+		} else {
+			model.addAttribute("page", orderService.findPage(type, status, member, null, isPendingReceive, isPendingRefunds, null, null, isAllocatedStock, hasExpired, pageable,orderStatusChk,hasPay,isshou,isfa,hasRefunds,isAppyRefunds,beginDate,endDate,null));
+		}
+		return "/admin/order/list";
+	}
+
+	@RequestMapping(value = "/xinlist", method = RequestMethod.GET)
+	public String xinlist(Order.Type type, Date beginDate,Date endDate, Order.Status status, String memberUsername, Boolean isPendingReceive, Boolean hasPay ,Boolean isshou,Boolean isfa, Boolean hasRefunds, Boolean isPendingRefunds, Boolean isAllocatedStock, Boolean hasExpired, Pageable pageable, ModelMap model,
+					   String orderStatusChk,Boolean isAppyRefunds) {
+		model.addAttribute("types", Order.Type.values());
+		model.addAttribute("statuses", Order.Status.values());
+		model.addAttribute("type", type);
+		model.addAttribute("status", status);
+		model.addAttribute("memberUsername", memberUsername);
+		model.addAttribute("isPendingReceive", isPendingReceive);
+		model.addAttribute("isPendingRefunds", isPendingRefunds);
+		model.addAttribute("isAllocatedStock", isAllocatedStock);
+		model.addAttribute("hasRefunds", hasRefunds);
+		model.addAttribute("hasPay", hasPay);
+		model.addAttribute("isshou", isshou);
+		model.addAttribute("hasExpired", hasExpired);
+		model.addAttribute("isAppyRefunds", isAppyRefunds);
+		model.addAttribute("beginDate", beginDate);
+		model.addAttribute("endDate", endDate);
+
+		model.addAttribute("orderStatusChk",orderStatusChk);
+		Admin admin = adminService.getCurrent();
+		String diqu=admin.getUsername();
+		/*String diqu="";
+		if(username.equals("admin")){
+			diqu="山东省威海";	
+		}
+		*/
+		Member member = memberService.findByUsername(memberUsername);
+		if (StringUtils.isNotEmpty(memberUsername) && member == null) {
+			model.addAttribute("page", Page.emptyPage(pageable));
+		} else {
+			model.addAttribute("page", orderService.findPage(type, status, member, null, isPendingReceive, isPendingRefunds, null, null, isAllocatedStock, hasExpired, pageable,orderStatusChk,hasPay,isshou,isfa,hasRefunds,isAppyRefunds,beginDate,endDate,diqu));
+		}
+		return "/admin/order/xinlist";
+	}
+
+	@RequestMapping(value = "/delete", method = RequestMethod.POST)
+	public @ResponseBody
+	Message delete(Long[] ids) {
+		if (ids != null) {
+			Admin admin = adminService.getCurrent();
+			for (Long id : ids) {
+				Order order = orderService.find(id);
+				if (order != null && orderService.isLocked(order, admin, true)) {
+					return Message.error("admin.order.deleteLockedNotAllowed", order.getSn());
+				}
+				order.setDeleteFlg(true);
+				orderService.update(order);
+			}
+			//orderService.delete(ids);
+		}
+		return SUCCESS_MESSAGE;
+	}
+
+	public String md5Encode(String plainText) {
+        String re_md5 = new String();
+        try {
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            md.update(plainText.getBytes());
+            byte []b = md.digest();
+            int i;
+            StringBuffer buf = new StringBuffer("");
+            for (int offset = 0; offset < b.length; offset++) {
+                i = b[offset];
+                if (i < 0)
+                    i += 256;
+                if (i < 16)
+                    buf.append("0");
+                buf.append(Integer.toHexString(i));
+            }
+            re_md5 = buf.toString().toUpperCase();
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        }
+        return re_md5;
+    }
+
+	public String state(int stateNum) {
+		switch (stateNum){
+			case 0:
+				return "在途";
+			case 1:
+				return "揽件";
+			case 2:
+				return "疑难";
+			case 3:
+				return "签收";
+			case 4:
+				return "退签";
+			case 5:
+				return "派件";
+			case 6:
+				return "退回";
+		}
+		return null;
+	}
+
+}

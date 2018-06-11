@@ -1,0 +1,20 @@
+package net.shopxx.service;
+
+import net.shopxx.entity.WeChat;
+
+public interface WeChatService extends BaseService<WeChat, Long>{
+	/**
+	 * 根据OpenId查询微信信息
+	 * @param openId
+	 * @return
+	 * cjh 2015年5月21日 下午3:16:49
+	 */
+	WeChat findWeChatByOpenId(String openId,Boolean subscribe);
+	/**
+	 * 根据unionid查询微信信息
+	 * @param openId
+	 * @return
+	 * taoq 2015年9月21日 上午10:16:49
+	 */
+	WeChat findWeChatByUnionid(String unionid);
+}

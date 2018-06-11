@@ -1,0 +1,27 @@
+package net.shopxx.dao;
+
+import net.shopxx.entity.WeChat;
+
+public interface WeChatDao extends BaseDao<WeChat, Long>{
+
+	/**
+	 * 根据OpenId查询信息
+	 * @param openId
+	 * @return
+	 * cjh 2015年5月21日 下午3:13:58
+	 */
+	WeChat findWeChatByOpenId(String openId,Boolean subscribe);
+	/**
+	 * 根据unionid查询信息
+	 * @param openId
+	 * @return
+	 * taoq 2015年9月21日 10:16:21
+	 */
+	WeChat findWeChatByUnionid(String unionid);
+	/**
+	 *发货发送模板消息
+	 * @param integer
+	 * @return
+	 */
+	 String findopenid(Integer userId) ;
+}

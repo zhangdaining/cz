@@ -1,0 +1,74 @@
+/*
+ * Copyright 2005-2015 shopxx.net. All rights reserved.
+ * Support: http://www.shopxx.net
+ * License: http://www.shopxx.net/license
+ */
+package net.shopxx.entity;
+
+import org.apache.commons.lang.StringUtils;
+import org.hibernate.validator.constraints.Length;
+import org.hibernate.validator.constraints.NotEmpty;
+
+import javax.persistence.*;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+@Entity
+@Table(name = "xx_product_category_shop")
+@SequenceGenerator(name = "sequenceGenerator", sequenceName = "seq_product_category_shop")
+public class ProductCategoryShop extends OrderEntity<Long> {
+
+	private static final long serialVersionUID = 402870506140238446L;
+
+	public static final String TREE_PATH_SEPARATOR = ",";
+
+
+
+	private String name;
+
+	private String iconName;
+	private Integer storeId;
+	private Set<Goods> goods = new HashSet<Goods>();
+
+	@NotEmpty
+	@Length(max = 200)
+	@Column(nullable = false)
+	public String getName() {
+		return name;
+	}
+
+	public void setName(String name) {
+		this.name = name;
+	}
+
+	@Length(max = 200)
+	@Column(nullable = false)
+	public String getIconName() {
+		return iconName;
+	}
+
+	public void setIconName(String iconName) {
+		this.iconName = iconName;
+	}
+
+	public Integer getStoreId() {
+		return storeId;
+	}
+
+	public void setStoreId(Integer storeId) {
+		this.storeId = storeId;
+	}
+
+	@OneToMany(mappedBy = "productCategoryShop", fetch = FetchType.LAZY)
+	public Set<Goods> getGoods() {
+		return goods;
+	}
+
+	public void setGoods(Set<Goods> goods) {
+		this.goods = goods;
+	}
+
+
+}

@@ -1,0 +1,27 @@
+/*
+ * Copyright 2005-2015 shopxx.net. All rights reserved.
+ * Support: http://www.shopxx.net
+ * License: http://www.shopxx.net/license
+ */
+package net.shopxx.dao;
+
+import java.util.List;
+
+import net.shopxx.entity.Area;
+import net.shopxx.entity.AreaNew;
+
+public interface AreaNewDao extends BaseDao<AreaNew, Long> {
+
+	List<AreaNew> findRoots(Integer count);
+
+	List<AreaNew> findParents(AreaNew area, boolean recursive, Integer count);
+
+	List<AreaNew> findChildren(AreaNew area, boolean recursive, Integer count);
+
+	
+
+	List<AreaNew> findids();
+
+	void updateupdateallid();
+
+}

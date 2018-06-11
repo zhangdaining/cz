@@ -1,0 +1,519 @@
+/*
+ * Copyright 2005-2015 shopxx.net. All rights reserved.
+ * Support: http://www.shopxx.net
+ * License: http://www.shopxx.net/license
+ */
+package net.shopxx.dao.impl;
+
+import java.math.BigDecimal;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.List;
+
+import javax.persistence.NoResultException;
+import javax.persistence.Query;
+import javax.persistence.criteria.CriteriaBuilder;
+import javax.persistence.criteria.CriteriaQuery;
+import javax.persistence.criteria.Expression;
+import javax.persistence.criteria.Predicate;
+import javax.persistence.criteria.Root;
+import javax.persistence.criteria.Subquery;
+
+import net.sf.ehcache.search.expression.Or;
+import net.shopxx.Filter;
+import net.shopxx.Page;
+import net.shopxx.Pageable;
+import net.shopxx.dao.OrderDao;
+import net.shopxx.entity.Goods;
+import net.shopxx.entity.Member;
+import net.shopxx.entity.Order;
+import net.shopxx.entity.OrderItem;
+import net.shopxx.entity.PaymentMethod;
+import net.shopxx.entity.Product;
+import net.shopxx.entity.WeChat;
+
+import org.apache.commons.lang.StringUtils;
+import org.springframework.stereotype.Repository;
+
+@Repository("orderDaoImpl")
+public class OrderDaoImpl extends BaseDaoImpl<Order, Long> implements OrderDao {
+
+	public Order findBySn(String sn) {
+		if (StringUtils.isEmpty(sn)) {
+			return null;
+		}
+		String jpql = "select orders from Order orders where lower(orders.sn) = lower(:sn)";
+		try {
+			return entityManager.createQuery(jpql, Order.class).setParameter("sn", sn).getSingleResult();
+		} catch (NoResultException e) {
+			return null;
+		}
+	}
+
+	public List<Order> findList(Order.Type type, Order.Status status, Member member, Goods goods, Boolean isPendingReceive, Boolean isPendingRefunds, Boolean isUseCouponCode, Boolean isExchangePoint, Boolean isAllocatedStock, Boolean hasExpired, Integer count, List<Filter> filters,
+			List<net.shopxx.Order> orders) {
+		CriteriaBuilder criteriaBuilder = entityManager.getCriteriaBuilder();
+		CriteriaQuery<Order> criteriaQuery = criteriaBuilder.createQuery(Order.class);
+		Root<Order> root = criteriaQuery.from(Order.class);
+		criteriaQuery.select(root);
+		Predicate restrictions = criteriaBuilder.conjunction();
+		if (type != null) {
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("type"), type));
+		}
+		if (status != null) {
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("status"), status));
+		}
+		if (member != null) {
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("member"), member));
+		}
+		if (goods != null) {
+			Subquery<Product> productSubquery = criteriaQuery.subquery(Product.class);
+			Root<Product> productSubqueryRoot = productSubquery.from(Product.class);
+			productSubquery.select(productSubqueryRoot);
+			productSubquery.where(criteriaBuilder.equal(productSubqueryRoot.get("goods"), goods));
+
+			Subquery<OrderItem> orderItemSubquery = criteriaQuery.subquery(OrderItem.class);
+			Root<OrderItem> orderItemSubqueryRoot = orderItemSubquery.from(OrderItem.class);
+			orderItemSubquery.select(orderItemSubqueryRoot);
+			orderItemSubquery.where(criteriaBuilder.equal(orderItemSubqueryRoot.get("order"), root), criteriaBuilder.in(orderItemSubqueryRoot.get("product")).value(productSubquery));
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.exists(orderItemSubquery));
+		}
+		if (isPendingReceive != null) {
+			Predicate predicate = criteriaBuilder.and(criteriaBuilder.or(root.get("expire").isNull(), criteriaBuilder.greaterThan(root.<Date> get("expire"), new Date())), criteriaBuilder.equal(root.get("paymentMethodType"), PaymentMethod.Type.cashOnDelivery),
+					criteriaBuilder.notEqual(root.get("status"), Order.Status.completed), criteriaBuilder.notEqual(root.get("status"), Order.Status.failed), criteriaBuilder.notEqual(root.get("status"), Order.Status.canceled), criteriaBuilder.notEqual(root.get("status"), Order.Status.denied),
+					criteriaBuilder.lessThan(root.<BigDecimal> get("amountPaid"), root.<BigDecimal> get("amount")));
+			if (isPendingReceive) {
+				restrictions = criteriaBuilder.and(restrictions, predicate);
+			} else {
+				restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.not(predicate));
+			}
+		}
+		if (isPendingRefunds != null) {
+			Predicate predicate = criteriaBuilder.or(
+					criteriaBuilder.and(
+							criteriaBuilder.or(criteriaBuilder.and(root.get("expire").isNotNull(), criteriaBuilder.lessThanOrEqualTo(root.<Date> get("expire"), new Date())), criteriaBuilder.equal(root.get("status"), Order.Status.failed),
+									criteriaBuilder.equal(root.get("status"), Order.Status.canceled), criteriaBuilder.equal(root.get("status"), Order.Status.denied)), criteriaBuilder.greaterThan(root.<BigDecimal> get("amountPaid"), BigDecimal.ZERO)),
+					criteriaBuilder.and(criteriaBuilder.equal(root.get("status"), Order.Status.completed), criteriaBuilder.greaterThan(root.<BigDecimal> get("amountPaid"), root.<BigDecimal> get("amount"))));
+			if (isPendingRefunds) {
+				restrictions = criteriaBuilder.and(restrictions, predicate);
+			} else {
+				restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.not(predicate));
+			}
+		}
+		if (isUseCouponCode != null) {
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("isUseCouponCode"), isUseCouponCode));
+		}
+		if (isExchangePoint != null) {
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("isExchangePoint"), isExchangePoint));
+		}
+		if (isAllocatedStock != null) {
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("isAllocatedStock"), isAllocatedStock));
+		}
+		if (hasExpired != null) {
+			if (hasExpired) {
+				restrictions = criteriaBuilder.and(restrictions, root.get("expire").isNotNull(), criteriaBuilder.lessThanOrEqualTo(root.<Date> get("expire"), new Date()));
+			} else {
+				restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.or(root.get("expire").isNull(), criteriaBuilder.greaterThan(root.<Date> get("expire"), new Date())));
+			}
+		}
+		criteriaQuery.where(restrictions);
+		return super.findList(criteriaQuery, null, count, filters, orders);
+	}
+
+	public Page<Order> findPage(Order.Type type, Order.Status status, Member member, Goods goods, Boolean isPendingReceive, Boolean isPendingRefunds, Boolean isUseCouponCode, Boolean isExchangePoint, Boolean isAllocatedStock, Boolean hasExpired, Pageable pageable,String orderStatusChk,Boolean hasPay,Boolean isshou,Boolean isfa,Boolean hasRefunds,Boolean isAppyRefunds ,Date beginDate,Date endDate,String diqu) {
+		CriteriaBuilder criteriaBuilder = entityManager.getCriteriaBuilder();
+		CriteriaQuery<Order> criteriaQuery = criteriaBuilder.createQuery(Order.class);
+		Root<Order> root = criteriaQuery.from(Order.class);
+		criteriaQuery.select(root);
+		Predicate restrictions = criteriaBuilder.conjunction();
+		if (type != null) {
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("type"), type));
+		}
+		if(diqu!=null){
+/*		-------------------新增业务员查看订单----------------*/
+		String diyu="";
+		List<String> lists=new ArrayList<String>();
+		if (diqu.equals("taoxiaopeng")) {
+			diyu="烟台";
+			lists.add("威海");
+			lists.add("青岛");
+			lists.add("日照");
+			lists.add("济南");
+		}
+		if (diqu.equals("gaofei")) {
+			diyu="烟台";
+			lists.add("威海");
+		}
+		if (diqu.equals("lvwenbin")||diqu.equals("zhengxiaolong")) {
+			diyu="潍坊";
+			lists.add("淄博");
+			lists.add("东营");
+			lists.add("滨州");
+			lists.add("莱芜");
+			if(diqu.equals("lvwenbin")){
+				lists.add("聊城");
+			}else{
+				lists.add("莱芜");
+			}
+			
+		}
+		if (diqu.equals("wangyafei")) {
+			diyu="临沂";
+			lists.add("枣庄");
+			lists.add("淄博");
+			lists.add("泰安");
+			lists.add("济宁");
+			lists.add("菏泽");
+		}
+		if (diqu.equals("linjin")) {
+			diyu="山东";
+			
+		}
+		if (diqu.equals("yuanluwei")) {
+			diyu="徐州";   
+			lists.add("淮安");
+			
+			
+		}
+		if (diqu.equals("wangzhen")) {
+			diyu="宿迁";
+			lists.add("扬州");
+			lists.add("盐城");
+			lists.add("泰州");
+			
+		
+			
+			
+		}
+		if (diqu.equals("dongdalei")) {
+			diyu="南京";
+			lists.add("常州");
+			lists.add("镇江");
+			lists.add("无锡");
+		
+			lists.add("苏州");
+			lists.add("南通");
+			
+			
+		}
+		if (diqu.equals("yudaping")) {
+			diyu="山西";
+			
+			
+			
+			
+		}
+		if (diqu.equals("zhangyanhu")) {
+			diyu="苏州";
+			lists.add("南通");
+			lists.add("泰州");
+		
+		
+			
+			
+			
+			
+			
+		}
+		if(!diyu.equals("")){
+			restrictions = criteriaBuilder.and(restrictions,criteriaBuilder.like(root.<String> get("areaName"),"%" + diyu + "%"));
+			
+			if(lists.size()>0){
+				for(int i=0;i<lists.size();i++){
+					restrictions = criteriaBuilder.or(restrictions,criteriaBuilder.like(root.<String> get("areaName"),"%"+lists.get(i)+"%"));
+				}
+				
+			}
+		       SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd"); 
+				 Calendar   cal_1=Calendar.getInstance();//获取当前日期 
+				 Calendar   c=Calendar.getInstance();//获取当前日期 
+			        c.add(Calendar.DAY_OF_MONTH,1);
+			   /*  cal_1.add(Calendar.MONTH, -1);*/
+			      cal_1.set(Calendar.DAY_OF_MONTH,1);//设置为1号,当前日期既为本月第一天 
+			      String firstDay = format.format(cal_1.getTime());
+			      String xianzaiDay = format.format(c.getTime());
+			      SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");  
+			     
+			      try {
+					java.util.Date first=sdf.parse(firstDay);
+					restrictions = criteriaBuilder.and(restrictions,criteriaBuilder.greaterThanOrEqualTo(root.<Date> get("createDate"),first));
+					
+					java.util.Date xiaznai=sdf.parse(xianzaiDay);
+					restrictions = criteriaBuilder.and(restrictions,criteriaBuilder.lessThanOrEqualTo(root.<Date> get("createDate"), xiaznai));
+				} catch (ParseException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} 
+				}
+		/*		-------------------结束----------------*/
+		}
+		
+		if (status != null) {
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("status"), status));
+		}
+		if (member != null) {
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("member"), member));
+		}
+		if (goods != null) {
+			Subquery<Product> productSubquery = criteriaQuery.subquery(Product.class);
+			Root<Product> productSubqueryRoot = productSubquery.from(Product.class);
+			productSubquery.select(productSubqueryRoot);
+			productSubquery.where(criteriaBuilder.equal(productSubqueryRoot.get("goods"), goods));
+
+			Subquery<OrderItem> orderItemSubquery = criteriaQuery.subquery(OrderItem.class);
+			Root<OrderItem> orderItemSubqueryRoot = orderItemSubquery.from(OrderItem.class);
+			orderItemSubquery.select(orderItemSubqueryRoot);
+			orderItemSubquery.where(criteriaBuilder.equal(orderItemSubqueryRoot.get("order"), root), criteriaBuilder.in(orderItemSubqueryRoot.get("product")).value(productSubquery));
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.exists(orderItemSubquery));
+		}
+		if (isPendingReceive != null) {
+			Predicate predicate = criteriaBuilder.and(criteriaBuilder.or(root.get("expire").isNull(), criteriaBuilder.greaterThan(root.<Date> get("expire"), new Date())), criteriaBuilder.equal(root.get("paymentMethodType"), PaymentMethod.Type.cashOnDelivery),
+					criteriaBuilder.notEqual(root.get("status"), Order.Status.completed), criteriaBuilder.notEqual(root.get("status"), Order.Status.failed), criteriaBuilder.notEqual(root.get("status"), Order.Status.canceled), criteriaBuilder.notEqual(root.get("status"), Order.Status.denied),
+					criteriaBuilder.lessThan(root.<BigDecimal> get("amountPaid"), root.<BigDecimal> get("amount")));
+			if (isPendingReceive) {
+				restrictions = criteriaBuilder.and(restrictions, predicate);
+			} else {
+				restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.not(predicate));
+			}
+		}
+		if (isPendingRefunds != null) {
+			Predicate predicate = criteriaBuilder.or(
+					criteriaBuilder.and(
+							criteriaBuilder.or(	criteriaBuilder.and(root.get("expire").isNotNull(), criteriaBuilder.lessThanOrEqualTo(root.<Date> get("expire"), new Date())),
+												criteriaBuilder.equal(root.get("status"), Order.Status.failed),
+												criteriaBuilder.equal(root.get("status"), Order.Status.canceled),
+												criteriaBuilder.equal(root.get("status"), Order.Status.denied)),
+					criteriaBuilder.greaterThan(root.<BigDecimal> get("amountPaid"), BigDecimal.ZERO)),
+					criteriaBuilder.and(
+							criteriaBuilder.equal(root.get("status"), Order.Status.completed),
+							criteriaBuilder.greaterThan(root.<BigDecimal> get("amountPaid"), root.<BigDecimal> get("amount")))
+			);
+			if (isPendingRefunds) {
+				restrictions = criteriaBuilder.and(restrictions, predicate);
+			} else {
+				restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.not(predicate));
+			}
+		}
+		if (isUseCouponCode != null) {
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("isUseCouponCode"), isUseCouponCode));
+		}
+		if (isExchangePoint != null) {
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("isExchangePoint"), isExchangePoint));
+		}
+		if (isAllocatedStock != null) {
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("isAllocatedStock"), isAllocatedStock));
+		}
+		if(beginDate!=null){
+			restrictions = criteriaBuilder.and(restrictions,criteriaBuilder.greaterThanOrEqualTo(root.<Date> get("createDate"),beginDate));
+		}
+		if(endDate!=null){
+			restrictions = criteriaBuilder.and(restrictions,criteriaBuilder.lessThanOrEqualTo(root.<Date> get("createDate"), endDate));
+		}
+		if (hasExpired != null) {
+			if (hasExpired) {
+				restrictions = criteriaBuilder.and(restrictions, root.get("expire").isNotNull(), criteriaBuilder.lessThanOrEqualTo(root.<Date> get("expire"), new Date()));
+			} else {
+				restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.or(root.get("expire").isNull(), criteriaBuilder.greaterThan(root.<Date> get("expire"), new Date())));
+			}
+		}
+		//已收款
+		if(hasPay!=null&&hasPay){
+			restrictions=criteriaBuilder.and(restrictions,criteriaBuilder.greaterThan(root.<BigDecimal>get("amountPaid"), new  BigDecimal(0)));
+		}
+		//已收货
+				if(isshou!=null&&isshou){
+					restrictions=criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("status"), Order.Status.received));
+				}
+				//已收货
+				if(isfa!=null&&isfa){
+					restrictions=criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("isMarketable"), true));
+				}
+		
+		
+		if(hasRefunds!=null&&hasRefunds){
+			restrictions=criteriaBuilder.and(restrictions,criteriaBuilder.greaterThan(root.<BigDecimal>get("refundAmount"), new  BigDecimal(0)));
+		}
+		if(isAppyRefunds!=null&&isAppyRefunds){
+			restrictions=criteriaBuilder.and(restrictions,criteriaBuilder.equal(root.<Order.RefundStatus>get("refundStatus"), Order.RefundStatus.appyRefund));
+		}
+
+		
+		if(orderStatusChk != null){
+			if ("0".equals(orderStatusChk)) {
+				restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("status"), Order.Status.pendingPayment),criteriaBuilder.and(root.get("expire").isNull(), criteriaBuilder.greaterThan(root.<Date> get("expire"), new Date())));
+			}else if ("1".equals(orderStatusChk)) {
+				restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("status"), Order.Status.pendingReview));
+			}else if ("2".equals(orderStatusChk)) {
+				restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("status"), Order.Status.pendingShipment));
+			}else if ("3".equals(orderStatusChk)) {
+				restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("status"), Order.Status.shipped));
+			}else if ("4".equals(orderStatusChk)) {
+				restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("status"), Order.Status.received));
+			}else if ("5".equals(orderStatusChk)) {
+				restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("status"), Order.Status.completed));
+			}else if ("6".equals(orderStatusChk)) {
+				restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("status"), Order.Status.failed));
+			}else if ("7".equals(orderStatusChk)) {
+				restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("status"), Order.Status.canceled));
+			}else if ("8".equals(orderStatusChk)) {
+				restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("status"), Order.Status.denied));
+			}else if ("9".equals(orderStatusChk)) {				
+				restrictions = criteriaBuilder.and(restrictions, root.get("expire").isNotNull(), criteriaBuilder.lessThanOrEqualTo(root.<Date> get("expire"), new Date()));	
+			}
+		}
+		restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("deleteFlg"), false));
+
+		criteriaQuery.where(restrictions);
+		return super.findPage(criteriaQuery, pageable);
+	}
+
+	public Long count(Order.Type type, Order.Status status, Member member, Goods goods, Boolean isPendingReceive, Boolean isPendingRefunds, Boolean isUseCouponCode, Boolean isExchangePoint, Boolean isAllocatedStock, Boolean hasExpired) {
+		CriteriaBuilder criteriaBuilder = entityManager.getCriteriaBuilder();
+		CriteriaQuery<Order> criteriaQuery = criteriaBuilder.createQuery(Order.class);
+		Root<Order> root = criteriaQuery.from(Order.class);
+		criteriaQuery.select(root);
+		Predicate restrictions = criteriaBuilder.conjunction();
+		if (type != null) {
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("type"), type));
+		}
+		if (status != null) {
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("status"), status));
+		}
+		if (member != null) {
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("member"), member));
+		}
+		if (goods != null) {
+			Subquery<Product> productSubquery = criteriaQuery.subquery(Product.class);
+			Root<Product> productSubqueryRoot = productSubquery.from(Product.class);
+			productSubquery.select(productSubqueryRoot);
+			productSubquery.where(criteriaBuilder.equal(productSubqueryRoot.get("goods"), goods));
+
+			Subquery<OrderItem> orderItemSubquery = criteriaQuery.subquery(OrderItem.class);
+			Root<OrderItem> orderItemSubqueryRoot = orderItemSubquery.from(OrderItem.class);
+			orderItemSubquery.select(orderItemSubqueryRoot);
+			orderItemSubquery.where(criteriaBuilder.equal(orderItemSubqueryRoot.get("order"), root), criteriaBuilder.in(orderItemSubqueryRoot.get("product")).value(productSubquery));
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.exists(orderItemSubquery));
+		}
+		if (isPendingReceive != null) {
+			Predicate predicate = criteriaBuilder.and(criteriaBuilder.or(root.get("expire").isNull(), criteriaBuilder.greaterThan(root.<Date> get("expire"), new Date())), criteriaBuilder.equal(root.get("paymentMethodType"), PaymentMethod.Type.cashOnDelivery),
+					criteriaBuilder.notEqual(root.get("status"), Order.Status.completed), criteriaBuilder.notEqual(root.get("status"), Order.Status.failed), criteriaBuilder.notEqual(root.get("status"), Order.Status.canceled), criteriaBuilder.notEqual(root.get("status"), Order.Status.denied),
+					criteriaBuilder.lessThan(root.<BigDecimal> get("amountPaid"), root.<BigDecimal> get("amount")));
+			if (isPendingReceive) {
+				restrictions = criteriaBuilder.and(restrictions, predicate);
+			} else {
+				restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.not(predicate));
+			}
+		}
+		if (isPendingRefunds != null) {
+			Predicate predicate = criteriaBuilder.or(
+					criteriaBuilder.and(
+							criteriaBuilder.or(criteriaBuilder.and(root.get("expire").isNotNull(), criteriaBuilder.lessThanOrEqualTo(root.<Date> get("expire"), new Date())), criteriaBuilder.equal(root.get("status"), Order.Status.failed),
+									criteriaBuilder.equal(root.get("status"), Order.Status.canceled), criteriaBuilder.equal(root.get("status"), Order.Status.denied)), criteriaBuilder.greaterThan(root.<BigDecimal> get("amountPaid"), BigDecimal.ZERO)),
+					criteriaBuilder.and(criteriaBuilder.equal(root.get("status"), Order.Status.completed), criteriaBuilder.greaterThan(root.<BigDecimal> get("amountPaid"), root.<BigDecimal> get("amount"))));
+			if (isPendingRefunds) {
+				restrictions = criteriaBuilder.and(restrictions, predicate);
+			} else {
+				restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.not(predicate));
+			}
+		}
+		if (isUseCouponCode != null) {
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("isUseCouponCode"), isUseCouponCode));
+		}
+		if (isExchangePoint != null) {
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("isExchangePoint"), isExchangePoint));
+		}
+		if (isAllocatedStock != null) {
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.equal(root.get("isAllocatedStock"), isAllocatedStock));
+		}
+		if (hasExpired != null) {
+			if (hasExpired) {
+				restrictions = criteriaBuilder.and(restrictions, root.get("expire").isNotNull(), criteriaBuilder.lessThanOrEqualTo(root.<Date> get("expire"), new Date()));
+			} else {
+				restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.or(root.get("expire").isNull(), criteriaBuilder.greaterThan(root.<Date> get("expire"), new Date())));
+			}
+		}
+		criteriaQuery.where(restrictions);
+		return super.count(criteriaQuery, null);
+	}
+
+	public Long createOrderCount(Date beginDate, Date endDate) {
+		CriteriaBuilder criteriaBuilder = entityManager.getCriteriaBuilder();
+		CriteriaQuery<Order> criteriaQuery = criteriaBuilder.createQuery(Order.class);
+		Root<Order> root = criteriaQuery.from(Order.class);
+		criteriaQuery.select(root);
+		Predicate restrictions = criteriaBuilder.conjunction();
+		if (beginDate != null) {
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.greaterThanOrEqualTo(root.<Date> get("createDate"), beginDate));
+		}
+		if (endDate != null) {
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.lessThanOrEqualTo(root.<Date> get("createDate"), endDate));
+		}
+		criteriaQuery.where(restrictions);
+		return super.count(criteriaQuery, null);
+	}
+
+	public Long completeOrderCount(Date beginDate, Date endDate) {
+		CriteriaBuilder criteriaBuilder = entityManager.getCriteriaBuilder();
+		CriteriaQuery<Order> criteriaQuery = criteriaBuilder.createQuery(Order.class);
+		Root<Order> root = criteriaQuery.from(Order.class);
+		criteriaQuery.select(root);
+		Predicate restrictions = criteriaBuilder.conjunction();
+		if (beginDate != null) {
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.greaterThanOrEqualTo(root.<Date> get("completeDate"), beginDate));
+		}
+		if (endDate != null) {
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.lessThanOrEqualTo(root.<Date> get("completeDate"), endDate));
+		}
+		criteriaQuery.where(restrictions);
+		return super.count(criteriaQuery, null);
+	}
+
+	public BigDecimal createOrderAmount(Date beginDate, Date endDate) {
+		CriteriaBuilder criteriaBuilder = entityManager.getCriteriaBuilder();
+		CriteriaQuery<BigDecimal> criteriaQuery = criteriaBuilder.createQuery(BigDecimal.class);
+		Root<Order> root = criteriaQuery.from(Order.class);
+		criteriaQuery.select(criteriaBuilder.sum(root.<BigDecimal> get("amount")));
+		Predicate restrictions = criteriaBuilder.conjunction();
+		if (beginDate != null) {
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.greaterThanOrEqualTo(root.<Date> get("createDate"), beginDate));
+		}
+		if (endDate != null) {
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.lessThanOrEqualTo(root.<Date> get("createDate"), endDate));
+		}
+		criteriaQuery.where(restrictions);
+		BigDecimal result = entityManager.createQuery(criteriaQuery).getSingleResult();
+		return result != null ? result : BigDecimal.ZERO;
+	}
+
+	public BigDecimal completeOrderAmount(Date beginDate, Date endDate) {
+		CriteriaBuilder criteriaBuilder = entityManager.getCriteriaBuilder();
+		CriteriaQuery<BigDecimal> criteriaQuery = criteriaBuilder.createQuery(BigDecimal.class);
+		Root<Order> root = criteriaQuery.from(Order.class);
+		criteriaQuery.select(criteriaBuilder.sum(root.<BigDecimal> get("amount")));
+		Predicate restrictions = criteriaBuilder.conjunction();
+		if (beginDate != null) {
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.greaterThanOrEqualTo(root.<Date> get("completeDate"), beginDate));
+		}
+		if (endDate != null) {
+			restrictions = criteriaBuilder.and(restrictions, criteriaBuilder.lessThanOrEqualTo(root.<Date> get("completeDate"), endDate));
+		}
+		criteriaQuery.where(restrictions);
+		BigDecimal result = entityManager.createQuery(criteriaQuery).getSingleResult();
+		return result != null ? result : BigDecimal.ZERO;
+	}
+	public String findredate(Long orderid) {
+		SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd hh:mm:ss");
+		String jpql = "select last_updated from m_pay_record where order_id = ?";
+		Query query = entityManager.createNativeQuery(jpql);
+		query.setParameter(1, orderid);
+			if(query.getResultList().size()==0){
+				return "未退款";
+			}else{
+		return format.format(query.getResultList().get(0));
+			}
+	}
+
+}

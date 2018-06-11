@@ -1,0 +1,347 @@
+package net.shopxx.weixin.controller;
+
+import java.io.IOException;
+import java.util.Date;
+import javax.annotation.Resource;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import me.chanjar.weixin.common.exception.WxErrorException;
+import me.chanjar.weixin.common.util.StringUtils;
+import me.chanjar.weixin.mp.api.WxMpInMemoryConfigStorage;
+import me.chanjar.weixin.mp.api.WxMpMessageRouter;
+import me.chanjar.weixin.mp.api.WxMpServiceImpl;
+import me.chanjar.weixin.mp.bean.WxMpCustomMessage;
+import me.chanjar.weixin.mp.bean.WxMpCustomMessage.WxArticle;
+import me.chanjar.weixin.mp.bean.WxMpXmlMessage;
+import me.chanjar.weixin.mp.bean.result.WxMpUser;
+import net.shopxx.controller.admin.BaseController;
+import net.shopxx.entity.WeChat;
+import net.shopxx.service.WeChatService;
+
+@Controller
+@RequestMapping("/weixin")
+public class WeixinController extends BaseController{
+
+	// 测试微信公众号的appidoAUX6sxoYezwfCcpj_Jm5sVRZ7z0
+	//private static final String APPID = "wx1e0f160c51e17f7c";
+	//正式
+	private static final String APPID = "wx562f4bf929f50bcf";
+
+	// 测试微信公众号的app corpSecret
+	//private static final String SECRET = "29a844dc046487e2e352690a0ee23f95";
+	//正式
+	private static final String SECRET = "5edbc772fe4ff5ac8b4d809146b1dc57";
+
+	// 设置微信公众号的token
+	private static final String TOKEN = "taidong";
+	// 设置微信公众号的EncodingAESKey
+	private static final String ENCODINGAESKEY = "4ACDYwCmNzQoJfd37oW0RSQK85y9bpQJhLCv4z33n99";
+
+	private WxMpInMemoryConfigStorage config;
+	private WxMpServiceImpl wxService;
+	private WxMpMessageRouter wxMpMessageRouter;
+	private String nonce;
+	private String timestamp;
+	private String signature;
+	
+	@Resource(name = "weChatServiceImpl")
+	private WeChatService weChatService;
+	
+	public WeixinController(){
+		if(config == null){
+			config = new WxMpInMemoryConfigStorage();
+			config.setAppId(APPID); // 设置微信公众号的appid
+			config.setSecret(SECRET); // 设置微信公众号的app corpSecret
+			config.setToken(TOKEN); // 设置微信公众号的token
+			config.setAesKey(ENCODINGAESKEY); // 设置微信公众号的EncodingAESKey
+			wxService = new WxMpServiceImpl();
+			wxService.setWxMpConfigStorage(config);
+			wxMpMessageRouter = new WxMpMessageRouter(wxService);
+		}
+	}	
+	
+	/**
+	 * 微信验证
+	 * @param request
+	 * @param response
+	 * @throws IOException
+	 * cjh 2015年5月18日 下午12:52:02
+	 */
+	@RequestMapping(method = { RequestMethod.GET },produces = "application/json;charset=UTF-8")
+	//@RequestMapping("/wx")
+	public void valid(HttpServletRequest request,HttpServletResponse response) throws IOException {
+		signature = request.getParameter("signature");
+		nonce = request.getParameter("nonce");
+		timestamp = request.getParameter("timestamp");		
+		if (!wxService.checkSignature(timestamp, nonce, signature)) {
+			// 消息签名不正确，说明不是公众平台发过来的消息
+			response.getWriter().println("非法请求");
+			System.out.println("2");
+			return;
+		}
+		String echostr = request.getParameter("echostr");
+		if (StringUtils.isNotBlank(echostr)) {
+			// 说明是一个仅仅用来验证的请求，回显echostr
+			response.getWriter().println(echostr);
+			System.out.println("3");
+			return;
+		}
+	}
+	
+	/**
+	 * 微信服务
+	 * @param request
+	 * @param response
+	 * @throws IOException
+	 * @throws WxErrorException
+	 * @throws DocumentException 
+	 */
+	@RequestMapping(method = { RequestMethod.POST }, produces = "application/xml;charset=UTF-8")
+	public void processing(HttpServletRequest request,
+			HttpServletResponse response) throws IOException, WxErrorException {
+		request.setCharacterEncoding("UTF-8");
+		response.setCharacterEncoding("UTF-8");
+		String encryptType = StringUtils.isBlank(request.getParameter("encrypt_type")) ? "raw" : request.getParameter("encrypt_type");
+		WxMpCustomMessage message = null;
+		if ("raw".equals(encryptType)) {
+			// 明文传输的消息
+			WxMpXmlMessage inMessage = WxMpXmlMessage.fromXml(request.getInputStream());
+			if(inMessage.getMsgType().equals("event")){
+				if(inMessage.getEvent().equals("subscribe")){//关注
+					message = WxMpCustomMessage.TEXT().toUser(inMessage.getFromUserName()).content("欢迎关注【胎动轮胎信息平台】公共号，请点击下方菜单：【进入胎动】 或者  taidong.echepei.com").build();
+					wxService.customMessageSend(message);
+					String lang = "zh_CN"; //语言
+					WxMpUser wxUser = wxService.userInfo(inMessage.getFromUserName(), lang);
+					WeChat weChat = weChatService.findWeChatByOpenId(wxUser.getOpenId(),wxUser.getSubscribe());
+					WeChat weChatSubscribe;
+					if(weChat != null){
+						weChatSubscribe = new WeChat();
+						weChatSubscribe.setOpenId(weChat.getOpenId());
+						weChatSubscribe.setCity(weChat.getCity());
+						weChatSubscribe.setCountry(weChat.getCountry());
+						weChatSubscribe.setSex(weChat.getSex());
+						weChatSubscribe.setHeadImgUrl(weChat.getHeadImgUrl());
+						weChatSubscribe.setNickName(weChat.getNickName());
+						weChatSubscribe.setProvince(weChat.getProvince());
+						weChatSubscribe.setSubscribe(weChat.getSubscribe());
+						weChatSubscribe.setIsBindingMember(false);
+						weChatSubscribe.setUnionId(weChat.getUnionId());
+						weChatSubscribe.setLanguage(weChat.getLanguage());
+						weChatSubscribe.setSexId(weChat.getSexId());
+						weChatSubscribe.setRemark("再次关注");
+						weChatSubscribe.setGroupId(weChat.getGroupId());
+						weChatSubscribe.setSubscribeTime(new Date());
+						
+						weChatService.save(weChatSubscribe);
+					}else{
+						weChatSubscribe = new WeChat();
+						weChatSubscribe.setOpenId(wxUser.getOpenId());
+						weChatSubscribe.setCity(wxUser.getCity());
+						weChatSubscribe.setCountry(wxUser.getCountry());
+						weChatSubscribe.setSex(wxUser.getSex());
+						weChatSubscribe.setHeadImgUrl(wxUser.getHeadImgUrl());
+						weChatSubscribe.setNickName(wxUser.getNickname());
+						weChatSubscribe.setProvince(wxUser.getProvince());
+						weChatSubscribe.setSubscribe(wxUser.getSubscribe());
+						weChatSubscribe.setIsBindingMember(false);
+						weChatSubscribe.setUnionId(wxUser.getUnionId());
+						weChatSubscribe.setLanguage(wxUser.getLanguage());
+						weChatSubscribe.setSexId(wxUser.getSexId());
+						weChatSubscribe.setRemark("初次关注");
+						weChatSubscribe.setGroupId(wxUser.getGroupId());
+						weChatSubscribe.setSubscribeTime(new Date());
+						weChatService.save(weChatSubscribe);									
+					}
+					return;
+				}else if(inMessage.getEvent().equals("unsubscribe")){
+					String lang = "zh_CN"; //语言
+					
+					WxMpUser wxUser = wxService.userInfo(inMessage.getFromUserName(), lang);
+					WeChat weChat = weChatService.findWeChatByOpenId(wxUser.getOpenId(),wxUser.getSubscribe());	
+					WeChat weChatUnsubscribe;
+					if(weChat != null){			
+						WeChat weChatSubscribe = weChatService.findWeChatByOpenId(wxUser.getOpenId(),true);	
+						if(weChatSubscribe != null){
+							weChatUnsubscribe = new WeChat();
+							weChatUnsubscribe.setOpenId(weChatSubscribe.getOpenId());
+							weChatUnsubscribe.setCity(weChatSubscribe.getCity());
+							weChatUnsubscribe.setCountry(weChatSubscribe.getCountry());
+							weChatUnsubscribe.setSex(weChatSubscribe.getSex());
+							weChatUnsubscribe.setHeadImgUrl(weChatSubscribe.getHeadImgUrl());
+							weChatUnsubscribe.setNickName(weChatSubscribe.getNickName());
+							weChatUnsubscribe.setProvince(weChatSubscribe.getProvince());
+							weChatUnsubscribe.setIsBindingMember(false);
+							weChatUnsubscribe.setUnionId(weChatSubscribe.getUnionId());
+							weChatUnsubscribe.setLanguage(weChatSubscribe.getLanguage());
+							weChatUnsubscribe.setSexId(weChatSubscribe.getSexId());
+							weChatUnsubscribe.setRemark("再次取消关注");
+							weChatUnsubscribe.setGroupId(weChatSubscribe.getGroupId());						
+							weChatUnsubscribe.setSubscribe(false);
+							weChatUnsubscribe.setUnsubscribeTime(new Date());
+							
+							weChatService.save(weChatUnsubscribe);
+						}else{
+							weChatUnsubscribe = new WeChat();
+							weChatUnsubscribe.setOpenId(wxUser.getOpenId());
+							weChatUnsubscribe.setCity(wxUser.getCity());
+							weChatUnsubscribe.setCountry(wxUser.getCountry());
+							weChatUnsubscribe.setSex(wxUser.getSex());
+							weChatUnsubscribe.setHeadImgUrl(wxUser.getHeadImgUrl());
+							weChatUnsubscribe.setNickName(wxUser.getNickname());
+							weChatUnsubscribe.setProvince(wxUser.getProvince());
+							weChatUnsubscribe.setIsBindingMember(false);
+							weChatUnsubscribe.setUnionId(wxUser.getUnionId());
+							weChatUnsubscribe.setLanguage(wxUser.getLanguage());
+							weChatUnsubscribe.setSexId(wxUser.getSexId());
+							weChatUnsubscribe.setRemark("老用户关注记录不存在,取消关注");
+							weChatUnsubscribe.setGroupId(wxUser.getGroupId());						
+							weChatUnsubscribe.setSubscribe(false);
+							weChatUnsubscribe.setUnsubscribeTime(new Date());
+							weChatService.save(weChatUnsubscribe);
+						}	
+						
+					}else{
+						WeChat weChatSubscribe = weChatService.findWeChatByOpenId(wxUser.getOpenId(),true);					
+						if(weChatSubscribe != null){
+							weChatUnsubscribe = new WeChat();
+							weChatUnsubscribe.setOpenId(weChatSubscribe.getOpenId());
+							weChatUnsubscribe.setCity(weChatSubscribe.getCity());
+							weChatUnsubscribe.setCountry(weChatSubscribe.getCountry());
+							weChatUnsubscribe.setSex(weChatSubscribe.getSex());
+							weChatUnsubscribe.setHeadImgUrl(weChatSubscribe.getHeadImgUrl());
+							weChatUnsubscribe.setNickName(weChatSubscribe.getNickName());
+							weChatUnsubscribe.setProvince(weChatSubscribe.getProvince());
+							weChatUnsubscribe.setIsBindingMember(false);
+							weChatUnsubscribe.setUnionId(weChatSubscribe.getUnionId());
+							weChatUnsubscribe.setLanguage(weChatSubscribe.getLanguage());
+							weChatUnsubscribe.setSexId(weChatSubscribe.getSexId());
+							weChatUnsubscribe.setRemark("取消关注");
+							weChatUnsubscribe.setGroupId(weChatSubscribe.getGroupId());						
+							weChatUnsubscribe.setSubscribe(false);
+							weChatUnsubscribe.setUnsubscribeTime(new Date());
+							weChatService.save(weChatUnsubscribe);
+						}else{
+							weChatUnsubscribe = new WeChat();
+							weChatUnsubscribe.setOpenId(wxUser.getOpenId());
+							weChatUnsubscribe.setCity(wxUser.getCity());
+							weChatUnsubscribe.setCountry(wxUser.getCountry());
+							weChatUnsubscribe.setSex(wxUser.getSex());
+							weChatUnsubscribe.setHeadImgUrl(wxUser.getHeadImgUrl());
+							weChatUnsubscribe.setNickName(wxUser.getNickname());
+							weChatUnsubscribe.setProvince(wxUser.getProvince());
+							weChatUnsubscribe.setIsBindingMember(false);
+							weChatUnsubscribe.setUnionId(wxUser.getUnionId());
+							weChatUnsubscribe.setLanguage(wxUser.getLanguage());
+							weChatUnsubscribe.setSexId(wxUser.getSexId());
+							weChatUnsubscribe.setRemark("老用户关注记录不存在,取消关注");
+							weChatUnsubscribe.setGroupId(wxUser.getGroupId());						
+							weChatUnsubscribe.setSubscribe(false);
+							weChatUnsubscribe.setUnsubscribeTime(new Date());
+							weChatService.save(weChatUnsubscribe);
+						}						
+					}
+				}else if(inMessage.getEvent().equals("CLICK")){
+					String lang = "zh_CN"; //语言
+//					WxMpUser wxUser = wxService.userInfo(inMessage.getFromUserName(), lang);
+//					WeChat weChatUnsubscribe = new WeChat();
+//					weChatUnsubscribe.setOpenId(wxUser.getOpenId());
+//					weChatUnsubscribe.setCity(wxUser.getCity());
+//					weChatUnsubscribe.setCountry(wxUser.getCountry());
+//					weChatUnsubscribe.setSex(wxUser.getSex());
+//					weChatUnsubscribe.setHeadImgUrl(wxUser.getHeadImgUrl());
+//					weChatUnsubscribe.setNickName(wxUser.getNickname());
+//					weChatUnsubscribe.setProvince(wxUser.getProvince());
+//					weChatUnsubscribe.setIsBindingMember(false);
+//					weChatUnsubscribe.setUnionId(wxUser.getUnionId());
+//					weChatUnsubscribe.setLanguage(wxUser.getLanguage());
+//					weChatUnsubscribe.setSexId(wxUser.getSexId());
+//					weChatUnsubscribe.setRemark("用户点击菜单");
+//					weChatUnsubscribe.setGroupId(wxUser.getGroupId());					
+//					weChatService.save(weChatUnsubscribe);
+					
+					String eventKey = inMessage.getEventKey();
+					StringBuffer sb = new StringBuffer();
+					if("contact".equals(eventKey)){
+						sb.append("座机电话: 0532-80997108\n");
+						sb.append("                0532-80992090\n");
+						sb.append("客服电话：4000618717\n");
+						sb.append("客服QQ：  3390540983\n");
+						message = WxMpCustomMessage.TEXT().toUser(inMessage.getFromUserName()).content(sb.toString()).build();
+						wxService.customMessageSend(message);
+						return;
+					}else if("direction".equals(eventKey)){
+						WxArticle wxa = new WxArticle();
+						wxa.setDescription("胎动关注注册说明");
+						wxa.setPicUrl("http://image.135editor.com/files/users/119/1199647/201611/gJT8aoxn_b7oP.jpg");
+						wxa.setTitle("胎动关注注册说明");
+						wxa.setUrl("http://mp.weixin.qq.com/s?__biz=MzIxNDIwMTk0Ng==&mid=411674406&idx=1&sn=5da9094eaae8205080353fb3b1965882&scene=18#wechat_redirect");
+						
+						WxArticle wxa1 = new WxArticle();
+						wxa1.setDescription("商品购买流程");
+						wxa1.setPicUrl("http://image.135editor.com/files/users/119/1199647/201611/07n7Xzy2_Gjrf.jpg");
+						wxa1.setTitle("商品购买流程");
+						wxa1.setUrl("http://mp.weixin.qq.com/s?__biz=MzIxNDIwMTk0Ng==&mid=411674406&idx=2&sn=437f6355d3a7afdfe2572d9a14772b1b&scene=18#wechat_redirect");
+						
+						WxArticle wxa2 = new WxArticle();
+						wxa2.setDescription("发布轮胎信息");
+						wxa2.setPicUrl("http://image.135editor.com/files/users/119/1199647/201611/7dweoHjU_QHdg.jpg");
+						wxa2.setTitle("发布轮胎信息");
+						wxa2.setUrl("http://mp.weixin.qq.com/s?__biz=MzIxNDIwMTk0Ng==&mid=411674406&idx=3&sn=58792f8570936b2f4a9d58dd5b095830&scene=18#wechat_redirect");
+						
+						WxArticle wxa3 = new WxArticle();
+						wxa3.setDescription("查找轮胎信息");
+						wxa3.setPicUrl("http://image.135editor.com/files/users/119/1199647/201611/6AgnmAkD_njy5.jpg");
+						wxa3.setTitle("查找轮胎信息");
+						wxa3.setUrl("http://mp.weixin.qq.com/s?__biz=MzIxNDIwMTk0Ng==&mid=411674406&idx=4&sn=092219cd0385bac7934b704114ad3e63&scene=18#wechat_redirect");
+						
+						WxArticle wxa4 = new WxArticle();
+						wxa4.setDescription("您要甩货，我们帮您找渠道");
+						wxa4.setPicUrl("http://image.135editor.com/files/users/119/1199647/201611/dsWsr4a7_grOz.jpg");
+						wxa4.setTitle("您要甩货，我们帮您找渠道");
+						wxa4.setUrl("http://mp.weixin.qq.com/s?__biz=MzIxNDIwMTk0Ng==&mid=411674406&idx=5&sn=f55c332b3b41c8901d54afe2274e803b&scene=18#wechat_redirect");
+						
+//						WxArticle wxa5 = new WxArticle();
+//						wxa5.setDescription("山东轮胎业展望，这些您知道么？");
+//						wxa5.setPicUrl("https://mmbiz.qlogo.cn/mmbiz/nvWbSibnpuwgBQibQpBViamW1qNvKuiaNhOZTgib7FDMnYF2qUJQTazIiapiaCtfVpuEOhOmQrA73swQ67iafyneY1xiapg/0?wx_fmt=png");
+//						wxa5.setTitle("山东轮胎业展望，这些您知道么？");
+//						wxa5.setUrl("http://mp.weixin.qq.com/s?__biz=MzIxNDIwMTk0Ng==&mid=411674406&idx=6&sn=3dab54b25ea4787bc46b5c02d61920ac&scene=18#wechat_redirect");
+//						
+//						WxArticle wxa6 = new WxArticle();
+//						wxa6.setDescription("2016年钱难赚，轮胎业却有很多机会！");
+//						wxa6.setPicUrl("https://mmbiz.qlogo.cn/mmbiz/nvWbSibnpuwj45nW6FaMttItQGYl7POwbq3mu6EWLjJOxTYyN8qEJmX52DfRPyTPfp93LSW8y8jqHzwpZE8O2oA/0?wx_fmt=jpeg");
+//						wxa6.setTitle("2016年钱难赚，轮胎业却有很多机会！");
+//						wxa6.setUrl("http://mp.weixin.qq.com/s?__biz=MzIxNDIwMTk0Ng==&mid=411674406&idx=7&sn=07b307259bdcde1d1d5a38b9fe01a880&scene=18#wechat_redirect");
+						
+						message = WxMpCustomMessage.NEWS().toUser(inMessage.getFromUserName()).addArticle(wxa).addArticle(wxa1)
+								.addArticle(wxa2).addArticle(wxa3).addArticle(wxa4).build();
+						wxService.customMessageSend(message);
+						return;
+					}
+				}
+//				else if(inMessage.getEvent().equals("VIEW")){
+//					String lang = "zh_CN"; //语言
+//					WxMpUser wxUser = wxService.userInfo(inMessage.getFromUserName(), lang);
+//					WeChat weChatUnsubscribe = new WeChat();
+//					weChatUnsubscribe.setOpenId(wxUser.getOpenId());
+//					weChatUnsubscribe.setCity(wxUser.getCity());
+//					weChatUnsubscribe.setCountry(wxUser.getCountry());
+//					weChatUnsubscribe.setSex(wxUser.getSex());
+//					weChatUnsubscribe.setHeadImgUrl(wxUser.getHeadImgUrl());
+//					weChatUnsubscribe.setNickName(wxUser.getNickname());
+//					weChatUnsubscribe.setProvince(wxUser.getProvince());
+//					weChatUnsubscribe.setIsBindingMember(false);
+//					weChatUnsubscribe.setUnionId(wxUser.getUnionId());
+//					weChatUnsubscribe.setLanguage(wxUser.getLanguage());
+//					weChatUnsubscribe.setSexId(wxUser.getSexId());
+//					weChatUnsubscribe.setRemark("用户跳转胎动");
+//					weChatUnsubscribe.setGroupId(wxUser.getGroupId());					
+//					weChatService.save(weChatUnsubscribe);
+//				}
+			}
+		}		
+		return;
+	}
+}

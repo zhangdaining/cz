@@ -1,0 +1,225 @@
+package net.shopxx.util;
+import java.io.BufferedReader;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.UnsupportedEncodingException;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+ 
+
+
+
+
+
+import org.apache.http.impl.client.DefaultHttpClient;
+
+import java.util.TreeMap;
+
+import javax.annotation.Resource;
+
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.protocol.HTTP;
+import org.apache.http.client.utils.URLEncodedUtils;
+
+import net.sf.json.JSONObject;
+import net.shopxx.entity.Order;
+import net.shopxx.entity.Shipping;
+import net.shopxx.service.AdminService;
+import net.sf.json.JSONObject;
+
+import org.apache.http.HttpEntity;
+import org.apache.http.HttpResponse;
+import org.apache.http.NameValuePair;
+import org.apache.http.client.ClientProtocolException;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.client.utils.URLEncodedUtils;
+import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.message.BasicNameValuePair;
+import org.apache.http.protocol.HTTP;
+import org.apache.http.util.EntityUtils;
+/**
+*短信API服务调用示例代码 － 聚合数据
+*在线接口文档：http://www.juhe.cn/docs/54
+**/
+
+public final class SendUtils {
+
+    /**
+     * 发送下单成功模板消息
+     * @param shipping 
+     * @param applyId
+     * @param applyResult
+     * @param approveUser
+     * @param remark
+     */
+    public static void sendmoban(Order order, Shipping shipping,String openId){
+        SimpleDateFormat sdf=new SimpleDateFormat("yyyy-MM-dd");
+
+
+        String str="";
+        long shu=0;
+     /*   order.orderItems.each {
+            str= str+"\n\t\t"+it.name +"*"+it.quantity
+            shu=shu+it.quantity
+        }*/
+        // 一天之前两天之内消费记录
+
+        // 门店公众号已认证
+/*
+        String accessToken = "1wx6AzPLXMLTjToJDZel1fG7a6zH-6bzLDWGpdWZqJ8Y93vR5toOaNIk5oYC0_Dw6NpIe_VXTg__28oz4FXWEfAKhlet6qnZIoTCSF8mYTbRJG5Ga5Qpie_qJ5hIg642NBObAFAQER"
+*/
+
+        String accessToken = getAccessToken("wx562f4bf929f50bcf", "5edbc772fe4ff5ac8b4d809146b1dc57");
+        Map<String, Object> modelMap = new TreeMap<String, Object>();
+        Map<String, Object> infoMap = new TreeMap<String, Object>();
+        infoMap.put("value", "您购买的产品已经平稳发出");
+        modelMap.put("first", JSONObject.fromObject(infoMap));// Map集合转换成json
+        infoMap.put("value", order.getSn());
+        modelMap.put("keyword1", JSONObject.fromObject(infoMap));
+      
+        if(shipping.getDeliveryCorp().indexOf("物流")!=-1){
+        	  infoMap.put("value", "物流在途中..");
+              modelMap.put("keyword2", JSONObject.fromObject(infoMap));
+        }else{
+        	  infoMap.put("value", "快递员快速送货中..");
+              modelMap.put("keyword2", JSONObject.fromObject(infoMap));
+        }
+
+        infoMap.put("value",sdf.format(order.getCreateDate()) );
+        modelMap.put("keyword3",JSONObject.fromObject(infoMap));
+      
+        if(shipping.getDeliveryCorp().indexOf("物流")!=-1){
+        	infoMap.put("value",shipping.getMemo() );
+            modelMap.put("remark", JSONObject.fromObject(infoMap));	
+    	}else{
+    		  infoMap.put("value", "胎动平台更贴心那么一点点4000618717");
+    	      modelMap.put("remark", JSONObject.fromObject(infoMap));
+    	}
+      
+        // 请求map
+        Map<String, Object> paramMap = new TreeMap<String, Object>();
+        
+        
+        paramMap.put("touser", openId);
+
+        paramMap.put("template_id",
+                "Xy1-DWGAKtMgwg5MI_Zc7YVxCN8LL7p4d4FoH-plI9U");
+        if(shipping.getDeliveryCorp().indexOf("物流")!=-1){
+       
+        }else{
+        	 paramMap.put("url", "http://taidong.echepei.com/app/member/order/express?sn="+order.getSn());
+        }
+        paramMap.put("data",  JSONObject.fromObject(modelMap));
+
+        JSONObject jsonObject = JSONObject.fromObject(paramMap);
+
+        String  accessToken2=(String) JSONObject.fromObject(accessToken).get("access_token");
+      
+        try {
+			sendWinchatMsg(accessToken2, new String(jsonObject.toString().getBytes(), "ISO8859-1"));
+		} catch (UnsupportedEncodingException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+    }
+
+    /**
+     * 微信模板消息推送
+     */
+    static void sendWinchatMsg(String accessToken, String sendData) {
+        String sss = null;
+        sss = sendPostRequest(
+		        "https://api.weixin.qq.com/cgi-bin/message/template/send?access_token="
+		                + accessToken, sendData, false, null, null);
+        System.out.println(sss);
+    }
+
+    public static String sendPostRequest(String reqURL, String sendData,
+                                         boolean isEncoder, String encodeCharset, String decodeCharset) {
+        String responseContent = null;
+        HttpClient httpClient = new DefaultHttpClient();
+
+        HttpPost httpPost = new HttpPost(reqURL);
+        httpPost.setHeader(HTTP.CONTENT_TYPE,
+                "application/x-www-form-urlencoded");
+        try {
+            if (isEncoder) {
+                List<NameValuePair> formParams = new ArrayList<NameValuePair>();
+                for (String str : sendData.split("&")) {
+                    formParams.add(new BasicNameValuePair(str.substring(0,
+                            str.indexOf("=")),
+                            str.substring(str.indexOf("=") + 1)));
+                }
+                httpPost.setEntity(new StringEntity(URLEncodedUtils.format(
+                        formParams, encodeCharset == null ? "UTF-8"
+                        : encodeCharset)));
+            } else {
+                httpPost.setEntity(new StringEntity(sendData));
+            }
+
+            HttpResponse response = httpClient.execute(httpPost);
+            HttpEntity entity = response.getEntity();
+            if (null != entity) {
+                responseContent = EntityUtils.toString(entity,
+                        decodeCharset == null ? "UTF-8" : decodeCharset);
+                EntityUtils.consume(entity);
+            }
+        } catch (Exception e) {
+        } finally {
+            httpClient.getConnectionManager().shutdown();
+        }
+        return responseContent;
+    }
+
+    public static String getAccessToken(String appid, String secret) {
+        // 获取access_token
+    String str = null;
+    String accessToken = null;
+    try {
+        str = sendGetRequest(
+                "https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=" + appid + "&secret=" + secret,
+                null);
+    } catch (IOException e) {
+    }
+
+
+    return str;
+}
+    /**
+     * GET请求
+     *
+     * throws IOException
+     */
+    public static String sendGetRequest(String reqURL, String decodeCharset)
+            throws IOException {
+        String responseContent = null; // 响应内容
+        HttpClient httpClient = new DefaultHttpClient() ;// 创建默认的httpClient实例
+        HttpGet httpGet = new HttpGet(reqURL); // 创建org.apache.http.client.methods.HttpGet
+        try {
+            HttpResponse response = httpClient.execute(httpGet); // 执行GET请求
+            HttpEntity entity = response.getEntity() ;// 获取响应实体
+            if (null != entity) {
+                responseContent = EntityUtils.toString(entity,
+                        decodeCharset == null ? "UTF-8" : decodeCharset);
+                EntityUtils.consume(entity); // Consume response content
+            }
+        } catch (ClientProtocolException e) {
+        } finally {
+            httpClient.getConnectionManager().shutdown();// 关闭连接,释放资源
+        }
+        return responseContent;
+    }
+    
+}

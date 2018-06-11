@@ -1,0 +1,31 @@
+/*
+ * Copyright 2005-2015 shopxx.net. All rights reserved.
+ * Support: http://www.shopxx.net
+ * License: http://www.shopxx.net/license
+ */
+package net.shopxx.dao.impl;
+
+import net.shopxx.dao.ProductCategoryDao;
+import net.shopxx.dao.ProductCategoryShopDao;
+import net.shopxx.entity.ProductCategory;
+import net.shopxx.entity.ProductCategoryShop;
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang.ArrayUtils;
+import org.apache.commons.lang.builder.CompareToBuilder;
+import org.springframework.stereotype.Repository;
+
+import javax.persistence.TypedQuery;
+import java.util.*;
+
+@Repository("productCategoryShopDaoImpl")
+public class ProductCategoryShopDaoImpl extends BaseDaoImpl<ProductCategoryShop, Long> implements ProductCategoryShopDao {
+
+
+	@Override
+	public List<ProductCategoryShop> findByStoreId(Integer storeId) {
+		String jpql = "select productCategory from ProductCategoryShop productCategory where productCategory.storeId =:storeId  order by productCategory.order asc";
+		TypedQuery<ProductCategoryShop> query = entityManager.createQuery(jpql, ProductCategoryShop.class);
+		query.setParameter("storeId",storeId);
+		return query.getResultList();
+	}
+}

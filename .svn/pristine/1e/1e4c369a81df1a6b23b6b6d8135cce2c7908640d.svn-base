@@ -1,0 +1,346 @@
+[#assign shiro = JspTaglibs["/WEB-INF/tld/shiro.tld"] /]
+[#escape x as x?html]
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+        "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <meta http-equiv="content-type" content="text/html; charset=utf-8"/>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+    <title>${message("admin.order.list")} - Powered By SHOP++</title>
+    <meta name="author" content="SHOP++ Team"/>
+    <meta name="copyright" content="SHOP++"/>
+    <link href="${base}/resources/admin/css/common.css" rel="stylesheet" type="text/css"/>
+    <script type="text/javascript" src="${base}/resources/admin/js/jquery.js"></script>
+    <script type="text/javascript" src="${base}/resources/admin/js/common.js"></script>
+    <script type="text/javascript" src="${base}/resources/admin/js/list.js"></script>
+    <script type="text/javascript" src="${base}/resources/admin/datePicker/WdatePicker.js"></script>
+    <style type="text/css">
+        .moreTable th {
+            width: 80px;
+            line-height: 25px;
+            padding: 5px 10px 5px 0px;
+            text-align: right;
+            font-weight: normal;
+            color: #333333;
+            background-color: #f8fbff;
+        }
+
+        .moreTable td {
+            line-height: 25px;
+            padding: 5px;
+            color: #666666;
+        }
+    </style>
+    <script type="text/javascript">
+        $().ready(function () {
+
+            var $listForm = $("#listForm");
+            var $filterMenu = $("#filterMenu");
+            var $filterMenuItem = $("#filterMenu li");
+            var $moreButton = $("#moreButton");
+            var $print = $("#listTable select[name='print']");
+
+            [@flash_message /]
+
+            // 筛选菜单
+            $filterMenu.hover(
+                    function () {
+                        $(this).children("ul").show();
+                    }, function () {
+                        $(this).children("ul").hide();
+                    }
+            );
+
+            // 筛选
+            $filterMenuItem.click(function () {
+                var $this = $(this);
+                var $dest = $("#" + $this.attr("name"));
+                if ($this.hasClass("checked")) {
+                    $dest.val("");
+                } else {
+                    $dest.val($this.attr("val"));
+                }
+                $listForm.submit();
+            });
+
+            // 更多选项
+            $moreButton.click(function () {
+            $.dialog({
+                title: "${message("admin.order.moreOption")}",
+            content:
+                [@compress single_line = true]
+                '<table id="moreTable" class="moreTable">
+                < tr >
+                < th >
+                ${message("Order.type")}:
+                    <\/
+                    th >
+                    < td >
+                    < select
+                    name = "type" >
+                            < option
+                    value = "" >${message("admin.common.choose")} <\/option >
+                    [#list types as value]
+                    < option value = "${value}"[#if value == type] selected="selected"[/#if]>${message("Order.Type." + value)}<\/option >
+                    [/#list]
+                <\/
+                    select >
+                    <\/
+                    td >
+                    <\/
+                    tr >
+                    < tr >
+                    < th >
+                ${message("Order.status")}:
+                    <\/
+                    th >
+                    < td >
+                    < select
+                    name = "status" >
+                            < option
+                    value = "" >${message("admin.common.choose")} <\/option >
+                    [#list statuses as value]
+                    < option value = "${value}"[#if value == status] selected="selected"[/#if]>${message("Order.Status." + value)}<\/option >
+                    [/#list]
+                <\/
+                    select >
+                    <\/
+                    td >
+                    <\/
+                    tr >
+                    < tr >
+                    < th >
+                ${message("admin.order.memberUsername")}:
+                    <\/
+                    th >
+                    < td >
+                    < input
+                    type = "text"
+                    name = "memberUsername"
+                    class
+                    = "text"
+                    value = "${memberUsername}"
+                    maxlength = "200" \/>
+                    <\/
+                    td >
+                    <\/
+                    tr >
+                    <\/table > '
+                [/@compress]
+                    ,
+                    width:
+                470,
+                        modal
+                :
+                true,
+                        ok
+                :
+                "${message("admin.dialog.ok")}",
+                        cancel
+                :
+                "${message("admin.dialog.cancel")}",
+                        onOk
+                :
+                function () {
+                    $("#moreTable :input").each(function () {
+                        var $this = $(this);
+                        $("#" + $this.attr("name")).val($this.val());
+                    });
+                    $listForm.submit();
+                }
+            })
+                ;
+            });
+
+            // 打印选择
+            $print.change(function () {
+                var $this = $(this);
+                if ($this.val() != "") {
+                    window.open($this.val());
+                }
+            });
+
+        });
+    </script>
+</head>
+<body>
+<div class="breadcrumb">
+    <a href="${base}/admin/common/index.jhtml">${message("admin.breadcrumb.home")}</a> &raquo; ${message("admin.order.list")}
+    <span>(${message("admin.page.total", page.total)})</span>
+</div>
+<form id="listForm" action="xinlist.jhtml" method="get">
+    
+    <table id="listTable" class="list">
+        <tr>
+            <th class="check">
+                <input type="checkbox" id="selectAll"/>
+            </th>
+            <th>
+                <a href="javascript:;" class="sort" name="sn">${message("Order.sn")}</a>
+            </th>
+            <th>
+                <a href="javascript:;" class="sort" name="member">${message("Order.member")}</a>
+            </th>
+            <th>
+                <a href="javascript:;" class="sort" name="consignee">${message("Order.consignee")}</a>
+            </th>
+        [#--	<th>
+                <a href="javascript:;" class="sort" name="paymentMethodName">${message("Order.paymentMethod")}</a>
+            </th>
+            <th>
+                <a href="javascript:;" class="sort" name="shippingMethodName">${message("Order.shippingMethod")}</a>
+            </th>--]
+            <th>
+                <a href="javascript:;" class="sort" name="amount">${message("Order.amount")}</a>
+            </th>
+            <th>
+                <a href="javascript:;" class="sort" name="amountPaid">支付金额</a>
+            </th>
+            <th>
+                <a href="javascript:;" class="sort" name="refundAmount">已退款金额</a>
+            </th>
+            <th>
+                <a href="javascript:;" class="sort" name="rewardCash">返现金额</a>
+            </th>
+            <th>
+                <a href="javascript:;" class="sort" name="hasRewardCash">是否返现</a>
+            </th>
+            <th>
+                <a href="javascript:;" class="sort" name="status">${message("Order.status")}</a>
+            </th>
+            <th>
+                <a href="javascript:;" class="sort" name="refundStatus">退款状态</a>
+            </th>
+            <th>
+                <a href="javascript:;" class="sort" name="createDate">审核人</a>
+            </th>
+            <th>
+                <a href="javascript:;" class="sort" name="createDate">审核日期</a>
+            </th>
+            <th>
+                <a href="javascript:;" class="sort" name="createDate">审核意见</a>
+            </th>
+            <th>
+                <a href="javascript:;" class="sort" name="salesMan">业务员</a>
+            </th>
+            <th>
+                <a href="javascript:;" class="sort" name="createDate">${message("admin.common.createDate")}</a>
+            </th>
+            [@shiro.hasPermission name = "admin:print"]
+                <th>
+                    <span>${message("admin.order.print")}</span>
+                </th>
+            [/@shiro.hasPermission]
+            <th>
+                <span>${message("admin.common.action")}</span>
+            </th>
+        </tr>
+        [#list page.content as order]
+            <tr>
+                <td>
+                    <input type="checkbox" name="ids" value="${order.id}"/>
+                </td>
+                <td>
+                ${order.sn}
+                </td>
+                <td>
+                ${order.member.username}
+                </td>
+                <td>
+                ${order.consignee}
+                </td>
+                <td>
+                ${currency(order.amount, true)}
+                </td>
+                <td>
+                    ￥${order.amountPaid}
+                </td>
+                <td>
+                    ￥${order.refundAmount}
+                </td>
+                <td>
+                    ￥${order.rewardCash}
+                </td>
+                <td>
+                    [#if order.hasRewardCash=="Y"]
+                        已经返现
+                    [#elseif order.rewardCash>0]
+                        未返现
+                            [#else]
+                        无需返现
+                    [/#if]
+                </td>
+                <td>
+                ${message("Order.Status." + order.status)}
+
+                    [#if order.hasExpired()]
+                        <span class="silver">(${message("admin.order.hasExpired")})</span>
+                    [/#if]
+                </td>
+                <td>
+                    [#if order.refundStatus!=null]
+                        <span style="color: red"> ${message("admin.order." + order.refundStatus)}</span>
+                    [#else]
+                        -
+                    [/#if]
+                </td>
+                <td>
+                    [#if order.review!=null]
+                        <span style="color: red">${order.review}</span>
+                    [#else]
+                        -
+                    [/#if]
+
+                </td>
+                <td>
+                    [#if order.reviewDate!=null]
+                        <span style="color: red">${order.reviewDate?string("yyyy-MM-dd HH:mm:ss")}</span>
+                    [#else]
+                        -
+                    [/#if]
+                </td>
+                <td>
+                    [#if order.reviewMemo!=null]
+                        <span style="color: red">${order.reviewMemo}</span>
+                    [#else]
+                        -
+                    [/#if]
+                </td>
+                <td>
+                    [#if order.salesMan!=null]
+                        <span style="color: #0000CD">${order.salesMan}</span>
+                    [#else]
+                        -
+                    [/#if]
+
+                </td>
+                <td>
+                    <span>${order.createDate?string("yyyy-MM-dd HH:mm:ss")}</span>
+                </td>
+                [@shiro.hasPermission name = "admin:print"]
+                    <td>
+                        <select name="print">
+                            <option value="">${message("admin.common.choose")}</option>
+                            <option value="../print/order.jhtml?id=${order.id}">${message("admin.order.orderPrint")}</option>
+                            <option value="../print/product.jhtml?id=${order.id}">${message("admin.order.productPrint")}</option>
+                            <option value="../print/shipping.jhtml?id=${order.id}">${message("admin.order.shippingPrint")}</option>
+                            [#if order.isDelivery]
+                                <option value="../print/delivery.jhtml?orderId=${order.id}">${message("admin.order.deliveryPrint")}</option>
+                            [/#if]
+                        </select>
+                    </td>
+                [/@shiro.hasPermission]
+                <td>
+                    <a href="xinview.jhtml?id=${order.id}">[${message("admin.common.view")}]</a>
+                    
+                </td>
+            </tr>
+        [/#list]
+    </table>
+    [@pagination pageNumber = page.pageNumber totalPages = page.totalPages]
+        [#include "/admin/include/pagination.ftl"]
+    [/@pagination]
+</form>
+</body>
+</html>
+[/#escape]

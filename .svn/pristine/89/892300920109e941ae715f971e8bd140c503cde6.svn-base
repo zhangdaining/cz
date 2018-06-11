@@ -1,0 +1,39 @@
+/*
+ * Copyright 2005-2015 shopxx.net. All rights reserved.
+ * Support: http://www.shopxx.net
+ * License: http://www.shopxx.net/license
+ */
+package net.shopxx.service.impl;
+
+import net.shopxx.dao.ProductCategoryDao;
+import net.shopxx.dao.ProductCategoryShopDao;
+import net.shopxx.entity.ProductCategory;
+import net.shopxx.entity.ProductCategoryShop;
+import net.shopxx.service.ProductCategoryService;
+import net.shopxx.service.ProductCategoryShopService;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.Assert;
+
+import javax.annotation.Resource;
+import java.util.Collections;
+import java.util.List;
+@Service("productCategoryShopServiceImpl")
+public class ProductCategoryShopServiceImpl extends BaseServiceImpl<ProductCategoryShop, Long> implements ProductCategoryShopService {
+
+	@Resource(name = "productCategoryShopDaoImpl")
+	private ProductCategoryShopDao productCategoryShopDao;
+
+
+	@Override
+	public List<ProductCategoryShop> findByStoreId(Integer storeId) {
+		return productCategoryShopDao.findByStoreId(storeId);
+	}
+
+	@Override
+	public ProductCategoryShop findById(Long storeId) {
+		return productCategoryShopDao.find(storeId);
+	}
+}

@@ -1,0 +1,55 @@
+package net.shopxx.util;
+
+import java.io.InputStream;
+import java.util.HashMap;
+import java.util.Map;
+
+import com.qiniu.api.auth.digest.Mac;
+import com.qiniu.api.io.IoApi;
+import com.qiniu.api.io.PutExtra;
+import com.qiniu.api.io.PutRet;
+import com.qiniu.api.rs.PutPolicy;
+
+/**
+ * Created by Administrator on 2016/6/8.
+ */
+public class QiniuUploadUtil {
+
+
+    static String ACCESS_KEY = "jPun0C8_-MybyimhQUWjNe6F_SZPVXg3g4rcZCTi";
+     static String SECRET_KEY = "0-TLNy8w7Y295yHAjTQaQWjk_YoohVp8nCXkCSju";
+    static String BUCKET_NAME="echepei";
+    public   static String DOMAIN = "7xrq2x.com1.z0.glb.clouddn.com";
+    static Map<String,String> contentTypes =null;
+    static String prefix = "ecp";
+    static {
+        contentTypes=new HashMap<String,String>();
+        contentTypes.put("image/gif","gif");
+        contentTypes.put("image/jpeg","jpg");
+        contentTypes.put("image/pjpeg","jpg");
+        contentTypes.put("image/bmp","bmp");
+        contentTypes.put("image/png","png");
+        contentTypes.put("image/x-png","png");
+    }
+   public   static String generateKey(String contentType,String ext){
+        ext = (contentTypes.get(contentType)!=null)? contentTypes.get(contentType):ext;
+        String key = System.currentTimeMillis()+"";
+        if(ext!=null){
+            key = key +"."+ext;
+        }
+        key = prefix + "_" + key;
+        return  key;
+    }
+
+    public static String upload(InputStream inputStream ,String key) throws Exception{
+        Mac mac = new Mac(ACCESS_KEY, SECRET_KEY);
+        PutPolicy putPolicy = new PutPolicy(BUCKET_NAME);
+        String uptoken = putPolicy.token(mac);
+        PutExtra extra = new PutExtra();
+        PutRet ret = IoApi.Put(uptoken, key,inputStream, extra);
+        ret.getResponse();
+        return key;
+    }
+
+
+}

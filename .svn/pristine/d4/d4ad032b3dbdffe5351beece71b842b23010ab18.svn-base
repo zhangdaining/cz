@@ -1,0 +1,334 @@
+/*
+ * Copyright 2013-2015 qdum.com. All rights reserved.
+ * Support: http://www.qdum.com
+ * License: http://www.qdum.com/license
+ */
+package net.shopxx.entity;
+
+import java.util.Date;
+
+import javax.persistence.Entity;
+import javax.persistence.FetchType;
+import javax.persistence.OneToOne;
+import javax.persistence.SequenceGenerator;
+import javax.persistence.Table;
+
+/**
+ * 微信实体类
+ * cjh
+ * 2015年5月21日 下午1:54:03 
+ */
+
+@Entity
+@Table(name = "xx_we_chat")
+@SequenceGenerator(name = "sequenceGenerator", sequenceName = "xx_we_chat_sequence")
+public class WeChat extends BaseEntity<Long>{
+
+	/**
+	 * cjh
+	 * 2015年5月21日 下午1:54:41 
+	 */
+	private static final long serialVersionUID = -3743472417745506005L;
+	
+	/**
+	 * OpenId
+	 */
+	private String openId;
+	
+	/**
+	 * 昵称
+	 */
+	private String nickName;
+	
+	/**
+	 * 性别
+	 */
+	private String sex;
+	
+	/**
+	 * 国家
+	 */
+	private String country;
+	
+	/**
+	 * 省份
+	 */
+	private String province;
+	
+	/**
+	 * 城市
+	 */
+	private String city;
+	
+	/**
+	 * 头像图片连接
+	 */
+	private String headImgUrl;
+	
+	/**
+	 * 是否关注
+	 */
+	private Boolean subscribe;
+	
+	/**
+	 * 关注时间
+	 */
+	private Date subscribeTime;
+
+	/**
+	 * 关注时间
+	 */
+	private Date unsubscribeTime;
+	
+	public Date getUnsubscribeTime() {
+		return unsubscribeTime;
+	}
+
+	public void setUnsubscribeTime(Date unsubscribeTime) {
+		this.unsubscribeTime = unsubscribeTime;
+	}
+
+	/**
+	 * 是否绑定账号
+	 */
+	private Boolean isBindingMember;
+	
+	/**
+	 * 验证码
+	 */
+	private String captcha;
+	
+	/**
+	 * 验证码手机
+	 */
+	private String captchaPhone;
+	
+	/**
+	 * 用户最后一次支付金额
+	 */
+	private Double wePayAmount;
+	
+	/**
+	 * 用户
+	 */
+	
+	private Double latitude;
+
+	private Double longitude;
+	
+	private String unionId;
+	private String language;
+	private Integer sexId;
+	private String remark;
+	private Integer groupId;
+	/**
+	 * @return the latitude
+	 */
+	public Double getLatitude() {
+		return latitude;
+	}
+
+	/**
+	 * @param latitude the latitude to set
+	 */
+	public void setLatitude(Double latitude) {
+		this.latitude = latitude;
+	}
+
+	/**
+	 * @return the longitude
+	 */
+	public Double getLongitude() {
+		return longitude;
+	}
+
+	/**
+	 * @param longitude the longitude to set
+	 */
+	public void setLongitude(Double longitude) {
+		this.longitude = longitude;
+	}
+
+	public String getOpenId() {
+		return openId;
+	}
+
+	public void setOpenId(String openId) {
+		this.openId = openId;
+	}
+
+	public String getNickName() {
+		return nickName;
+	}
+
+	public void setNickName(String nickName) {
+		this.nickName = nickName;
+	}
+
+	public String getSex() {
+		return sex;
+	}
+
+	public void setSex(String sex) {
+		this.sex = sex;
+	}
+
+	public String getCountry() {
+		return country;
+	}
+
+	public void setCountry(String country) {
+		this.country = country;
+	}
+
+	public String getProvince() {
+		return province;
+	}
+
+	public void setProvince(String province) {
+		this.province = province;
+	}
+
+	public String getCity() {
+		return city;
+	}
+
+	public void setCity(String city) {
+		this.city = city;
+	}
+
+	public String getHeadImgUrl() {
+		return headImgUrl;
+	}
+
+	public void setHeadImgUrl(String headImgUrl) {
+		this.headImgUrl = headImgUrl;
+	}
+
+	public Boolean getSubscribe() {
+		return subscribe;
+	}
+
+	public void setSubscribe(Boolean subscribe) {
+		this.subscribe = subscribe;
+	}
+
+	public Date getSubscribeTime() {
+		return subscribeTime;
+	}
+
+	public void setSubscribeTime(Date subscribeTime) {
+		this.subscribeTime = subscribeTime;
+	}
+
+
+	public Boolean getIsBindingMember() {
+		return isBindingMember;
+	}
+
+	public void setIsBindingMember(Boolean isBindingMember) {
+		this.isBindingMember = isBindingMember;
+	}
+
+	public String getCaptcha() {
+		return captcha;
+	}
+
+	public void setCaptcha(String captcha) {
+		this.captcha = captcha;
+	}
+
+	public String getCaptchaPhone() {
+		return captchaPhone;
+	}
+
+	public void setCaptchaPhone(String captchaPhone) {
+		this.captchaPhone = captchaPhone;
+	}
+
+	/**
+	 * 获取用户最后一次支付金额
+	 */
+	public Double getWePayAmount() {
+		return wePayAmount;
+	}
+
+	/**
+	 * 设置用户最后一次支付金额
+	 */
+	public void setWePayAmount(Double wePayAmount) {
+		this.wePayAmount = wePayAmount;
+	}
+
+	/**
+	 * @return the unionId
+	 */
+	public String getUnionId() {
+		return unionId;
+	}
+
+	/**
+	 * @param unionId the unionId to set
+	 */
+	public void setUnionId(String unionId) {
+		this.unionId = unionId;
+	}
+
+	/**
+	 * @return the language
+	 */
+	public String getLanguage() {
+		return language;
+	}
+
+	/**
+	 * @param language the language to set
+	 */
+	public void setLanguage(String language) {
+		this.language = language;
+	}
+
+	/**
+	 * @return the sexId
+	 */
+	public Integer getSexId() {
+		return sexId;
+	}
+
+	/**
+	 * @param sexId the sexId to set
+	 */
+	public void setSexId(Integer sexId) {
+		this.sexId = sexId;
+	}
+
+	/**
+	 * @return the remark
+	 */
+	public String getRemark() {
+		return remark;
+	}
+
+	/**
+	 * @param remark the remark to set
+	 */
+	public void setRemark(String remark) {
+		this.remark = remark;
+	}
+
+	/**
+	 * @return the groupId
+	 */
+	public Integer getGroupId() {
+		return groupId;
+	}
+
+	/**
+	 * @param groupId the groupId to set
+	 */
+	public void setGroupId(Integer groupId) {
+		this.groupId = groupId;
+	}
+	
+}
+
